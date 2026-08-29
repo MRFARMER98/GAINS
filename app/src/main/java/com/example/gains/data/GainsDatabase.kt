@@ -10,7 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [Exercise::class, WorkoutSession::class, LoggedSet::class, WorkoutLabel::class, UserProfile::class], version = 7, exportSchema = false)
+@Database(entities = [Exercise::class, WorkoutSession::class, LoggedSet::class, WorkoutLabel::class, UserProfile::class], version = 8, exportSchema = false)
 abstract class GainsDatabase : RoomDatabase() {
     abstract fun gainsDao(): GainsDao
 
@@ -68,6 +68,12 @@ abstract class GainsDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `exercises` ADD COLUMN `notes` TEXT DEFAULT NULL")
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): GainsDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -76,7 +82,7 @@ abstract class GainsDatabase : RoomDatabase() {
                     "gains_database"
                 )
                 .addCallback(GainsDatabaseCallback())
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .fallbackToDestructiveMigration(true)
                 .build()
                 INSTANCE = instance

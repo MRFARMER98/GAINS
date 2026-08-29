@@ -74,6 +74,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
+import com.example.gains.ExerciseDetail
 import com.example.gains.GainsApplication
 import com.example.gains.WorkoutLogger
 import com.example.gains.data.Exercise
@@ -170,7 +171,8 @@ fun MainScreen(
                     ExercisesTabContent(
                         exercises = allExercises,
                         syncState = syncState,
-                        onSyncClick = { viewModel.syncDatabase() }
+                        onSyncClick = { viewModel.syncDatabase() },
+                        onItemClick = onItemClick
                     )
                 }
                 else -> {
@@ -298,19 +300,6 @@ fun WorkoutTabContent(
         val profile = (state as? MainScreenUiState.Success)?.userProfile
         val userName = profile?.name ?: "Wouter"
         val photoUri = profile?.photoUri
-        val biometrics = if (profile != null) {
-            buildString {
-                if (profile.currentWeight != null) append("${profile.currentWeight} kg")
-                if (profile.height != null) {
-                    if (isNotEmpty()) append("  •  ")
-                    append("${profile.height.toInt()} cm")
-                }
-                if (profile.age != null) {
-                    if (isNotEmpty()) append("  •  ")
-                    append("${profile.age} yrs")
-                }
-            }
-        } else null
 
         // Top Header Card
         DashboardHeaderCard(
@@ -318,7 +307,6 @@ fun WorkoutTabContent(
             userName = userName,
             motivationQuote = "Let's fuck shit up today",
             photoUri = photoUri,
-            biometrics = if (biometrics.isNullOrBlank()) null else biometrics,
             workoutsCount = workoutsCount,
             streak = streak,
             modifier = Modifier.padding(bottom = 20.dp)
@@ -597,7 +585,8 @@ fun WorkoutTypeOptionRow(
 fun ExercisesTabContent(
     exercises: List<Exercise>,
     syncState: SyncState,
-    onSyncClick: () -> Unit
+    onSyncClick: () -> Unit,
+    onItemClick: (NavKey) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val filteredExercises = remember(exercises, searchQuery) {
@@ -753,7 +742,9 @@ fun ExercisesTabContent(
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
                 items(filteredExercises, key = { it.id }) { exercise ->
-                    GainsCard {
+                    GainsCard(
+                        modifier = Modifier.clickable { onItemClick(ExerciseDetail(exercise.id)) }
+                    ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

@@ -34,6 +34,11 @@ interface DataRepository {
 
     // User Profile
     suspend fun updateProfile(profile: UserProfile)
+
+    // Exercise Details & History
+    fun getExerciseById(exerciseId: Int): Flow<Exercise?>
+    fun getHistoryForExercise(exerciseId: Int): Flow<List<LoggedSetWithSession>>
+    suspend fun updateExerciseNotes(exerciseId: Int, notes: String?)
 }
 
 class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
@@ -102,4 +107,13 @@ class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
     override suspend fun updateProfile(profile: UserProfile) {
         gainsDao.insertOrUpdateProfile(profile)
     }
+
+    override fun getExerciseById(exerciseId: Int): Flow<Exercise?> =
+        gainsDao.getExerciseById(exerciseId)
+
+    override fun getHistoryForExercise(exerciseId: Int): Flow<List<LoggedSetWithSession>> =
+        gainsDao.getHistoryForExercise(exerciseId)
+
+    override suspend fun updateExerciseNotes(exerciseId: Int, notes: String?) =
+        gainsDao.updateExerciseNotes(exerciseId, notes)
 }

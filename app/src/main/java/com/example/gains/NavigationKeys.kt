@@ -7,3 +7,5 @@ import kotlinx.serialization.Serializable
 
 @Serializable data class WorkoutLogger(val sessionId: Long) : NavKey
 
+@Serializable data class ExerciseDetail(val exerciseId: Int) : NavKey
+

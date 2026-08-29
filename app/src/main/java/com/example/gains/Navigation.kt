@@ -9,6 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import com.example.gains.ui.exercise.ExerciseDetailScreen
 import com.example.gains.ui.main.MainScreen
 import com.example.gains.ui.workout.WorkoutLoggerScreen
 
@@ -33,8 +34,16 @@ fun MainNavigation() {
           WorkoutLoggerScreen(
             sessionId = key.sessionId,
             onBackClick = { backStack.removeLastOrNull() },
+            onItemClick = { navKey -> backStack.add(navKey) },
             repository = app.repository,
             modifier = Modifier.safeDrawingPadding().padding(16.dp)
+          )
+        }
+        entry<ExerciseDetail> { key ->
+          ExerciseDetailScreen(
+            exerciseId = key.exerciseId,
+            onBackClick = { backStack.removeLastOrNull() },
+            modifier = Modifier.safeDrawingPadding()
           )
         }
       },

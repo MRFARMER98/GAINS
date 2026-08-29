@@ -42,7 +42,6 @@ fun DashboardHeaderCard(
     userName: String,
     motivationQuote: String,
     photoUri: String?,
-    biometrics: String?,
     workoutsCount: Int,
     streak: String,
     modifier: Modifier = Modifier
@@ -74,14 +73,6 @@ fun DashboardHeaderCard(
                         style = HeaderBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    if (!biometrics.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = biometrics,
-                            style = BodySemiBold.copy(fontSize = 12.sp),
-                            color = InfraredAccent
-                        )
-                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = motivationQuote,

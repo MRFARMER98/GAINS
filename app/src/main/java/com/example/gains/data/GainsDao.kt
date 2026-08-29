@@ -31,6 +31,18 @@ data class WorkoutSessionWithLabel(
     val labelColorHex: String?
 )
 
+data class LoggedSetWithSession(
+    val id: Int,
+    val sessionId: Long,
+    val sessionTimestamp: Long,
+    val sessionName: String,
+    val exerciseId: Int,
+    val setNumber: Int,
+    val weight: Double,
+    val reps: Int,
+    val isCompleted: Boolean
+)
+
 @Dao
 interface GainsDao {
     // Exercises
@@ -51,6 +63,22 @@ interface GainsDao {
 
     @Query("SELECT COUNT(*) FROM exercises")
     suspend fun getExerciseCount(): Int
+
+    @Query("SELECT * FROM exercises WHERE id = :exerciseId")
+    fun getExerciseById(exerciseId: Int): Flow<Exercise?>
+
+    @Query("UPDATE exercises SET notes = :notes WHERE id = :exerciseId")
+    suspend fun updateExerciseNotes(exerciseId: Int, notes: String?)
+
+    @Query("""
+        SELECT s.id, s.sessionId, w.timestamp AS sessionTimestamp, w.name AS sessionName,
+               s.exerciseId, s.setNumber, s.weight, s.reps, s.isCompleted
+        FROM logged_sets s
+        INNER JOIN workout_sessions w ON s.sessionId = w.id
+        WHERE s.exerciseId = :exerciseId AND s.isCompleted = 1
+        ORDER BY w.timestamp DESC, s.id ASC
+    """)
+    fun getHistoryForExercise(exerciseId: Int): Flow<List<LoggedSetWithSession>>
 
     // Workout Sessions
     @Query("SELECT * FROM workout_sessions ORDER BY timestamp DESC")

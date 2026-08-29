@@ -27,6 +27,8 @@ import com.example.gains.theme.BodySemiBold
 import com.example.gains.theme.LabelCaps
 import com.example.gains.theme.PrimarySoftBg
 
+import androidx.compose.foundation.clickable
+
 @Composable
 fun ExerciseCard(
     exerciseName: String,
@@ -38,10 +40,11 @@ fun ExerciseCard(
     onToggleComplete: (Int) -> Unit,
     onDeleteSet: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    isReadOnly: Boolean = false
+    isReadOnly: Boolean = false,
+    onHeaderClick: (() -> Unit)? = null
 ) {
     GainsCard(
-        modifier = modifier
+        modifier = modifier.then(if (onHeaderClick != null) Modifier.clickable { onHeaderClick() } else Modifier)
     ) {
         Column(
             modifier = Modifier
@@ -54,7 +57,7 @@ fun ExerciseCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = exerciseName,
                         style = BodySemiBold.copy(fontSize = 17.sp, fontWeight = FontWeight.Bold),

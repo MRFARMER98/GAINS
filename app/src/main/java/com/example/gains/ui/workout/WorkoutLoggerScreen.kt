@@ -75,12 +75,16 @@ import com.example.gains.ui.components.AddExerciseDialog
 import com.example.gains.ui.components.ExerciseCard
 import kotlinx.coroutines.delay
 
+import com.example.gains.ExerciseDetail
+import androidx.navigation3.runtime.NavKey
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkoutLoggerScreen(
     sessionId: Long,
     onBackClick: () -> Unit,
     repository: DataRepository,
+    onItemClick: ((NavKey) -> Unit)? = null,
     modifier: Modifier = Modifier,
     viewModel: WorkoutLoggerViewModel = viewModel(key = sessionId.toString()) { WorkoutLoggerViewModel(sessionId, repository) }
 ) {
@@ -391,7 +395,8 @@ fun WorkoutLoggerScreen(
                                     onRepsChange = { setId, reps -> viewModel.updateSetReps(setId, reps) },
                                     onToggleComplete = { setId -> viewModel.toggleSetCompleted(setId) },
                                     onDeleteSet = { setId -> viewModel.deleteSet(setId) },
-                                    isReadOnly = isReadOnly
+                                    isReadOnly = isReadOnly,
+                                    onHeaderClick = { onItemClick?.invoke(ExerciseDetail(exerciseId)) }
                                 )
                             }
                         }

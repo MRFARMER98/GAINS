@@ -9,7 +9,8 @@ import androidx.room.PrimaryKey
 data class Exercise(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
-    val muscleGroup: String
+    val muscleGroup: String,
+    val notes: String? = null
 )
 
 @Entity(tableName = "workout_labels")
