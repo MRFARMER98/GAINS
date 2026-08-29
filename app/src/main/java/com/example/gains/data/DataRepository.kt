@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.Flow
 interface DataRepository {
     val allExercises: Flow<List<Exercise>>
     val allSessions: Flow<List<WorkoutSession>>
+    val allSessionsWithLabels: Flow<List<WorkoutSessionWithLabel>>
+    val allLabels: Flow<List<WorkoutLabel>>
+    val userProfile: Flow<UserProfile?>
 
     suspend fun insertSession(session: WorkoutSession): Long
     suspend fun updateSession(session: WorkoutSession)
@@ -24,11 +27,21 @@ interface DataRepository {
     
     suspend fun insertExercises(exercises: List<Exercise>)
     suspend fun syncExercises(sheetUrl: String): Result<Unit>
+
+    // Labels
+    suspend fun insertLabel(label: WorkoutLabel): Long
+    suspend fun deleteLabel(label: WorkoutLabel)
+
+    // User Profile
+    suspend fun updateProfile(profile: UserProfile)
 }
 
 class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
     override val allExercises: Flow<List<Exercise>> = gainsDao.getAllExercises()
     override val allSessions: Flow<List<WorkoutSession>> = gainsDao.getAllSessions()
+    override val allSessionsWithLabels: Flow<List<WorkoutSessionWithLabel>> = gainsDao.getAllSessionsWithLabels()
+    override val allLabels: Flow<List<WorkoutLabel>> = gainsDao.getAllLabels()
+    override val userProfile: Flow<UserProfile?> = gainsDao.getUserProfile()
 
     override suspend fun insertSession(session: WorkoutSession): Long = gainsDao.insertSession(session)
     override suspend fun updateSession(session: WorkoutSession) = gainsDao.updateSession(session)
@@ -77,5 +90,16 @@ class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
         } finally {
             client.close()
         }
+    }
+
+    override suspend fun insertLabel(label: WorkoutLabel): Long = gainsDao.insertLabel(label)
+
+    override suspend fun deleteLabel(label: WorkoutLabel) {
+        gainsDao.clearSessionLabelId(label.id)
+        gainsDao.deleteLabel(label)
+    }
+
+    override suspend fun updateProfile(profile: UserProfile) {
+        gainsDao.insertOrUpdateProfile(profile)
     }
 }

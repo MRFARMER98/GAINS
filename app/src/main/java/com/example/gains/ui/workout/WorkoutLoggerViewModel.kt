@@ -6,6 +6,7 @@ import com.example.gains.data.DataRepository
 import com.example.gains.data.Exercise
 import com.example.gains.data.LoggedSet
 import com.example.gains.data.LoggedSetWithExercise
+import com.example.gains.data.WorkoutLabel
 import com.example.gains.data.WorkoutSession
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,10 +27,28 @@ class WorkoutLoggerViewModel(
     val loggedSets: StateFlow<List<LoggedSetWithExercise>> = repository.getLoggedSetsForSession(sessionId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allLabels: StateFlow<List<WorkoutLabel>> = repository.allLabels
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun finishSession() {
         viewModelScope.launch {
             val currentSession = session.value ?: return@launch
             val updated = currentSession.copy(endTime = System.currentTimeMillis())
+            repository.updateSession(updated)
+        }
+    }
+
+    fun deleteSession() {
+        viewModelScope.launch {
+            val currentSession = session.value ?: return@launch
+            repository.deleteSession(currentSession)
+        }
+    }
+
+    fun assignLabelToSession(labelId: Int?) {
+        viewModelScope.launch {
+            val currentSession = session.value ?: return@launch
+            val updated = currentSession.copy(labelId = labelId)
             repository.updateSession(updated)
         }
     }

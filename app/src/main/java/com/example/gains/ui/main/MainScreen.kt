@@ -3,6 +3,7 @@ package com.example.gains.ui.main
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -22,10 +23,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import java.io.File
+import java.io.FileOutputStream
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.PlayArrow
@@ -68,16 +77,13 @@ import androidx.navigation3.runtime.NavKey
 import com.example.gains.GainsApplication
 import com.example.gains.WorkoutLogger
 import com.example.gains.data.Exercise
-import com.example.gains.data.WorkoutSession
+import com.example.gains.data.WorkoutLabel
+import com.example.gains.data.WorkoutSessionWithLabel
 import com.example.gains.theme.AccentGreen
 import com.example.gains.theme.AccentGreenBg
 import com.example.gains.theme.BodySemiBold
 import com.example.gains.theme.HeaderBold
 import com.example.gains.theme.InfraredAccent
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
 import com.example.gains.theme.LabelCaps
 import com.example.gains.theme.PrimarySoftBg
 import com.example.gains.theme.SystemGrayDark
@@ -87,6 +93,10 @@ import com.example.gains.theme.SystemRedSoftBg
 import com.example.gains.ui.components.DashboardHeaderCard
 import com.example.gains.ui.components.GainsCard
 import com.example.gains.ui.components.HistoryCard
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -165,6 +175,7 @@ fun MainScreen(
                 }
                 else -> {
                     SettingsTabContent(
+                        viewModel = viewModel,
                         settingsManager = app.settingsManager
                     )
                 }
@@ -231,7 +242,7 @@ private fun getGreeting(): String {
     }
 }
 
-private fun calculateStreak(sessions: List<WorkoutSession>): String {
+private fun calculateStreak(sessions: List<WorkoutSessionWithLabel>): String {
     if (sessions.isEmpty()) return "0 Days"
     val sdf = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
     val activeDays = sessions.map { sdf.format(Date(it.timestamp)) }.toSet()
@@ -284,11 +295,30 @@ fun WorkoutTabContent(
             else -> "0 Days"
         }
 
-        // Top Header Card (Centralized Component)
+        val profile = (state as? MainScreenUiState.Success)?.userProfile
+        val userName = profile?.name ?: "Wouter"
+        val photoUri = profile?.photoUri
+        val biometrics = if (profile != null) {
+            buildString {
+                if (profile.currentWeight != null) append("${profile.currentWeight} kg")
+                if (profile.height != null) {
+                    if (isNotEmpty()) append("  •  ")
+                    append("${profile.height.toInt()} cm")
+                }
+                if (profile.age != null) {
+                    if (isNotEmpty()) append("  •  ")
+                    append("${profile.age} yrs")
+                }
+            }
+        } else null
+
+        // Top Header Card
         DashboardHeaderCard(
             greeting = getGreeting(),
-            userName = "Wouter",
+            userName = userName,
             motivationQuote = "Let's fuck shit up today",
+            photoUri = photoUri,
+            biometrics = if (biometrics.isNullOrBlank()) null else biometrics,
             workoutsCount = workoutsCount,
             streak = streak,
             modifier = Modifier.padding(bottom = 20.dp)
@@ -369,8 +399,7 @@ fun WorkoutTabContent(
                         items(sessions, key = { it.id }) { session ->
                             HistoryCard(
                                 session = session,
-                                onClick = { onItemClick(WorkoutLogger(session.id)) },
-                                onDelete = { viewModel.deleteSession(session) }
+                                onClick = { onItemClick(WorkoutLogger(session.id)) }
                             )
                         }
                     }
@@ -389,6 +418,64 @@ fun WorkoutTabContent(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun ConfirmDeleteDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), RoundedCornerShape(16.dp))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "DELETE WORKOUT?",
+                    style = LabelCaps,
+                    color = SystemRed,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Text(
+                    text = "Are you sure you want to permanently delete this workout session? All logged sets will be removed.",
+                    style = BodySemiBold.copy(fontSize = 13.sp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 20.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("CANCEL", style = LabelCaps, color = MaterialTheme.colorScheme.secondary)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = onConfirm,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SystemRed,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                    ) {
+                        Text("DELETE", style = LabelCaps, color = Color.White)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -529,7 +616,6 @@ fun ExercisesTabContent(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // Exercise catalog header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -575,7 +661,6 @@ fun ExercisesTabContent(
             }
         }
 
-        // Sync Status Banner
         AnimatedVisibility(visible = syncState != SyncState.Idle) {
             Box(
                 modifier = Modifier
@@ -624,7 +709,6 @@ fun ExercisesTabContent(
             }
         }
 
-        // Search Bar (Minimalist look)
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
@@ -647,7 +731,6 @@ fun ExercisesTabContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Exercises Catalog List (Centralized GainsCard wrapper usage)
         if (filteredExercises.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -706,10 +789,22 @@ fun ExercisesTabContent(
 
 @Composable
 fun SettingsTabContent(
+    viewModel: MainScreenViewModel,
     settingsManager: com.example.gains.data.SettingsManager,
     modifier: Modifier = Modifier
 ) {
     val themeMode by settingsManager.themeMode.collectAsStateWithLifecycle()
+    var showCreateLabelDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
+    val labels by viewModel.allLabels.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    
+    val profile = (uiState as? MainScreenUiState.Success)?.userProfile
+    val currentName = profile?.name ?: "Wouter"
+    val currentPhotoUri = profile?.photoUri
+    val currentHeight = profile?.height
+    val currentAge = profile?.age
+    val currentWeight = profile?.currentWeight
 
     Column(
         modifier = modifier
@@ -728,6 +823,82 @@ fun SettingsTabContent(
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.secondary
         )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Card 0: Profile
+        Text(
+            text = "PROFILE",
+            style = LabelCaps,
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        
+        GainsCard(modifier = Modifier.clickable { showEditProfileDialog = true }) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val settingsBitmap = remember(currentPhotoUri) {
+                            if (currentPhotoUri != null) {
+                                try {
+                                    BitmapFactory.decodeFile(currentPhotoUri)?.asImageBitmap()
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            } else {
+                                null
+                            }
+                        }
+                        if (settingsBitmap != null) {
+                            Image(
+                                bitmap = settingsBitmap,
+                                contentDescription = "Profile Picture",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Text(
+                                text = currentName.firstOrNull()?.toString() ?: "U",
+                                style = BodySemiBold.copy(fontSize = 16.sp, fontWeight = FontWeight.Black),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Name",
+                            style = BodySemiBold.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = currentName,
+                            style = BodySemiBold.copy(fontSize = 13.sp),
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit Profile",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -755,7 +926,6 @@ fun SettingsTabContent(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Segmented Theme Control (Row of buttons)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -788,7 +958,94 @@ fun SettingsTabContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Card 2: Future Placeholders (Sleek sports-app style)
+        // Card 2: Custom Labels Manager
+        Text(
+            text = "WORKOUT LABELS",
+            style = LabelCaps,
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        
+        GainsCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Custom Tags",
+                        style = BodySemiBold.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    TextButton(onClick = { showCreateLabelDialog = true }) {
+                        Text("+ CREATE LABEL", style = LabelCaps, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(10.dp))
+                
+                if (labels.isEmpty()) {
+                    Text(
+                        text = "No custom labels created yet.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        labels.forEach { label ->
+                            val color = try {
+                                Color(android.graphics.Color.parseColor(label.colorHex))
+                            } catch (e: Exception) {
+                                MaterialTheme.colorScheme.primary
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .clip(CircleShape)
+                                            .background(color)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = label.name,
+                                        style = BodySemiBold.copy(fontSize = 14.sp),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { viewModel.deleteLabel(label) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete Label",
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Card 3: Account & Sync Placeholders
         Text(
             text = "ACCOUNT & SYNC (COMING SOON)",
             style = LabelCaps,
@@ -812,6 +1069,368 @@ fun SettingsTabContent(
                     title = "Local Database Export",
                     value = "Backup data (.json)"
                 )
+            }
+        }
+    }
+
+    if (showCreateLabelDialog) {
+        CreateLabelDialog(
+            onDismiss = { showCreateLabelDialog = false },
+            onCreateClick = { labelName, colorHex ->
+                viewModel.createLabel(labelName, colorHex)
+                showCreateLabelDialog = false
+            }
+        )
+    }
+
+    if (showEditProfileDialog) {
+        EditProfileDialog(
+            initialName = currentName,
+            initialPhotoUri = currentPhotoUri,
+            initialHeight = currentHeight,
+            initialAge = currentAge,
+            initialWeight = currentWeight,
+            onDismiss = { showEditProfileDialog = false },
+            onSaveClick = { newName, photo, h, a, w ->
+                viewModel.saveProfile(newName, photo, h, a, w)
+                showEditProfileDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun EditProfileDialog(
+    initialName: String,
+    initialPhotoUri: String?,
+    initialHeight: Double?,
+    initialAge: Int?,
+    initialWeight: Double?,
+    onDismiss: () -> Unit,
+    onSaveClick: (String, String?, Double?, Int?, Double?) -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var photoUri by remember { mutableStateOf(initialPhotoUri) }
+    var height by remember { mutableStateOf(initialHeight?.toString() ?: "") }
+    var age by remember { mutableStateOf(initialAge?.toString() ?: "") }
+    var weight by remember { mutableStateOf(initialWeight?.toString() ?: "") }
+    
+    val context = LocalContext.current
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val localPath = copyUriToInternalStorage(context, uri)
+            if (localPath != null) {
+                photoUri = localPath
+            }
+        }
+    }
+    
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), RoundedCornerShape(16.dp))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "EDIT PROFILE",
+                    style = LabelCaps,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    textAlign = TextAlign.Center
+                )
+                
+                // Clickable Avatar
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .align(Alignment.CenterHorizontally)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                        .clickable { imagePickerLauncher.launch("image/*") },
+                    contentAlignment = Alignment.Center
+                ) {
+                    val bitmap = remember(photoUri) {
+                        if (photoUri != null) {
+                            try {
+                                BitmapFactory.decodeFile(photoUri)?.asImageBitmap()
+                            } catch (e: Exception) {
+                                null
+                            }
+                        } else {
+                            null
+                        }
+                    }
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap,
+                            contentDescription = "Profile Picture",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "PHOTO",
+                                style = LabelCaps.copy(fontSize = 8.sp),
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name", color = MaterialTheme.colorScheme.secondary) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = height,
+                        onValueChange = { height = it },
+                        label = { Text("Height (cm)", color = MaterialTheme.colorScheme.secondary) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                    OutlinedTextField(
+                        value = weight,
+                        onValueChange = { weight = it },
+                        label = { Text("Weight (kg)", color = MaterialTheme.colorScheme.secondary) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                OutlinedTextField(
+                    value = age,
+                    onValueChange = { age = it },
+                    label = { Text("Age", color = MaterialTheme.colorScheme.secondary) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("CANCEL", style = LabelCaps, color = MaterialTheme.colorScheme.secondary)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (name.isNotBlank()) {
+                                onSaveClick(
+                                    name,
+                                    photoUri,
+                                    height.toDoubleOrNull(),
+                                    age.toIntOrNull(),
+                                    weight.toDoubleOrNull()
+                                )
+                            }
+                        },
+                        enabled = name.isNotBlank(),
+                        shape = RoundedCornerShape(8.dp),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                    ) {
+                        Text("SAVE", style = LabelCaps, color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun copyUriToInternalStorage(context: android.content.Context, uri: android.net.Uri): String? {
+    return try {
+        context.filesDir.listFiles { _, name -> name.startsWith("profile_picture_") }?.forEach {
+            it.delete()
+        }
+        val newFile = File(context.filesDir, "profile_picture_${System.currentTimeMillis()}.jpg")
+        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            FileOutputStream(newFile).use { outputStream ->
+                inputStream.copyTo(outputStream)
+            }
+        }
+        newFile.absolutePath
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
+
+@Composable
+fun CreateLabelDialog(
+    onDismiss: () -> Unit,
+    onCreateClick: (String, String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    val colors = listOf("#FF5E3A", "#10B981", "#0EA5E9", "#8B5CF6", "#F59E0B", "#F43F5E")
+    var selectedColor by remember { mutableStateOf(colors.first()) }
+    
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), RoundedCornerShape(16.dp))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "CREATE WORKOUT LABEL",
+                    style = LabelCaps,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    textAlign = TextAlign.Center
+                )
+                
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = { Text("Label name (e.g. Leg Day)", color = MaterialTheme.colorScheme.secondary) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "CHOOSE COLOR",
+                    style = LabelCaps,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    colors.forEach { hex ->
+                         val isSelected = selectedColor == hex
+                         val color = Color(android.graphics.Color.parseColor(hex))
+                         Box(
+                             modifier = Modifier
+                                 .size(36.dp)
+                                 .clip(CircleShape)
+                                 .background(color)
+                                 .border(
+                                     width = if (isSelected) 3.dp else 0.dp,
+                                     color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                     shape = CircleShape
+                                 )
+                                 .clickable { selectedColor = hex }
+                         )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("CANCEL", style = LabelCaps, color = MaterialTheme.colorScheme.secondary)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (name.isNotBlank()) {
+                                onCreateClick(name, selectedColor)
+                            }
+                        },
+                        enabled = name.isNotBlank(),
+                        shape = RoundedCornerShape(8.dp),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                    ) {
+                        Text("SAVE", style = LabelCaps, color = Color.White)
+                    }
+                }
             }
         }
     }

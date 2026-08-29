@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Delete
@@ -25,20 +26,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.gains.data.WorkoutSession
+import com.example.gains.data.WorkoutSessionWithLabel
 import com.example.gains.theme.BodySemiBold
+import com.example.gains.theme.LabelCaps
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 @Composable
 fun HistoryCard(
-    session: WorkoutSession,
+    session: WorkoutSessionWithLabel,
     onClick: () -> Unit,
-    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val date = Date(session.timestamp)
@@ -77,7 +79,7 @@ fun HistoryCard(
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary, // Obsidian Black or Infrared Accent
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -85,11 +87,36 @@ fun HistoryCard(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column {
-                    Text(
-                        text = dayFormat,
-                        style = BodySemiBold.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = dayFormat,
+                            style = BodySemiBold.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        
+                        // Small label tag badge
+                        if (session.labelName != null && session.labelColorHex != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            val color = try {
+                                Color(android.graphics.Color.parseColor(session.labelColorHex))
+                            } catch (e: Exception) {
+                                MaterialTheme.colorScheme.primary
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(color.copy(alpha = 0.15f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = session.labelName.uppercase(),
+                                    style = LabelCaps.copy(fontSize = 8.sp),
+                                    color = color
+                                )
+                            }
+                        }
+                    }
+                    
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = dateFormat,
@@ -97,14 +124,6 @@ fun HistoryCard(
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
-            }
-            
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete Session",
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
-                )
             }
         }
     }

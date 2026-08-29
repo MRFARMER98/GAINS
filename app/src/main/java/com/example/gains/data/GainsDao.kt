@@ -20,6 +20,17 @@ data class LoggedSetWithExercise(
     val isCompleted: Boolean
 )
 
+data class WorkoutSessionWithLabel(
+    val id: Long,
+    val timestamp: Long,
+    val name: String,
+    val workoutType: String,
+    val endTime: Long,
+    val labelId: Int?,
+    val labelName: String?,
+    val labelColorHex: String?
+)
+
 @Dao
 interface GainsDao {
     // Exercises
@@ -44,6 +55,15 @@ interface GainsDao {
     // Workout Sessions
     @Query("SELECT * FROM workout_sessions ORDER BY timestamp DESC")
     fun getAllSessions(): Flow<List<WorkoutSession>>
+
+    @Query("""
+        SELECT s.id, s.timestamp, s.name, s.workoutType, s.endTime, s.labelId,
+               l.name AS labelName, l.colorHex AS labelColorHex
+        FROM workout_sessions s
+        LEFT JOIN workout_labels l ON s.labelId = l.id
+        ORDER BY s.timestamp DESC
+    """)
+    fun getAllSessionsWithLabels(): Flow<List<WorkoutSessionWithLabel>>
 
     @Query("SELECT * FROM workout_sessions WHERE id = :sessionId")
     fun getSessionById(sessionId: Long): Flow<WorkoutSession?>
@@ -76,4 +96,24 @@ interface GainsDao {
         ORDER BY s.id ASC
     """)
     fun getLoggedSetsForSession(sessionId: Long): Flow<List<LoggedSetWithExercise>>
+
+    // Workout Labels
+    @Query("SELECT * FROM workout_labels ORDER BY name ASC")
+    fun getAllLabels(): Flow<List<WorkoutLabel>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLabel(label: WorkoutLabel): Long
+
+    @Delete
+    suspend fun deleteLabel(label: WorkoutLabel)
+
+    @Query("UPDATE workout_sessions SET labelId = NULL WHERE labelId = :labelId")
+    suspend fun clearSessionLabelId(labelId: Int)
+
+    // User Profile
+    @Query("SELECT * FROM user_profile WHERE id = 1")
+    fun getUserProfile(): Flow<UserProfile?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateProfile(profile: UserProfile)
 }

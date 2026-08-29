@@ -12,13 +12,21 @@ data class Exercise(
     val muscleGroup: String
 )
 
+@Entity(tableName = "workout_labels")
+data class WorkoutLabel(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val colorHex: String
+)
+
 @Entity(tableName = "workout_sessions")
 data class WorkoutSession(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val timestamp: Long,
     val name: String,
     val workoutType: String = "GYM",
-    val endTime: Long = 0L
+    val endTime: Long = 0L,
+    val labelId: Int? = null
 )
 
 @Entity(
@@ -50,4 +58,14 @@ data class LoggedSet(
     val weight: Double,
     val reps: Int,
     val isCompleted: Boolean = false
+)
+
+@Entity(tableName = "user_profile")
+data class UserProfile(
+    @PrimaryKey val id: Int = 1, // Enforce single active profile
+    val name: String = "Wouter",
+    val photoUri: String? = null,
+    val height: Double? = null,
+    val age: Int? = null,
+    val currentWeight: Double? = null
 )
