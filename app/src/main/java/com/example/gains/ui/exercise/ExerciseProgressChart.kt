@@ -23,7 +23,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,15 +36,32 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+enum class ChartMetric {
+    MAX_WEIGHT,
+    MAX_REPS,
+    MAX_VOLUME,
+    REPS_AT_MAX_WEIGHT
+}
+
 @Composable
 fun ExerciseProgressChart(
     points: List<ExerciseProgressPoint>,
+    selectedMetric: ChartMetric,
     modifier: Modifier = Modifier
 ) {
+    val headerText = when (selectedMetric) {
+        ChartMetric.MAX_WEIGHT -> "PROGRESSION TREND  •  MAX WEIGHT"
+        ChartMetric.MAX_REPS -> "PROGRESSION TREND  •  MAX REPS"
+        ChartMetric.MAX_VOLUME -> "PROGRESSION TREND  •  SESSION VOLUME"
+        ChartMetric.REPS_AT_MAX_WEIGHT -> "PROGRESSION TREND  •  REPS @ MAX WEIGHT"
+    }
+
+    val isWeightMetric = selectedMetric == ChartMetric.MAX_WEIGHT || selectedMetric == ChartMetric.MAX_VOLUME
+
     GainsCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "PROGRESSION TREND (EST. 1RM)",
+                text = headerText,
                 style = LabelCaps,
                 color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.padding(bottom = 12.dp)
@@ -66,9 +84,21 @@ fun ExerciseProgressChart(
                     )
                 }
             } else {
-                val minWeight = remember(points) { (points.minOf { it.est1RM } * 0.9).coerceAtLeast(0.0) }
-                val maxWeight = remember(points) { (points.maxOf { it.est1RM } * 1.1).coerceAtLeast(minWeight + 1.0) }
+                val values = remember(points, selectedMetric) {
+                    points.map { pt ->
+                        when (selectedMetric) {
+                            ChartMetric.MAX_WEIGHT -> pt.maxWeight
+                            ChartMetric.MAX_REPS -> pt.maxReps.toDouble()
+                            ChartMetric.MAX_VOLUME -> pt.sessionVolume
+                            ChartMetric.REPS_AT_MAX_WEIGHT -> pt.repsAtMaxWeight.toDouble()
+                        }
+                    }
+                }
+                val minValue = remember(values) { (values.minOrNull() ?: 0.0) * 0.9 }
+                val maxValue = remember(values) { ((values.maxOrNull() ?: 1.0) * 1.1).coerceAtLeast(minValue + 1.0) }
                 val sdf = remember { SimpleDateFormat("MMM dd", Locale.getDefault()) }
+
+                val textMeasurer = rememberTextMeasurer()
 
                 Box(
                     modifier = Modifier
@@ -80,9 +110,9 @@ fun ExerciseProgressChart(
                     val labelColor = MaterialTheme.colorScheme.secondary
 
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        val paddingLeft = 10.dp.toPx()
+                        val paddingLeft = 52.dp.toPx()
                         val paddingRight = 10.dp.toPx()
-                        val paddingTop = 10.dp.toPx()
+                        val paddingTop = 12.dp.toPx()
                         val paddingBottom = 20.dp.toPx()
 
                         val chartWidth = size.width - paddingLeft - paddingRight
@@ -90,10 +120,30 @@ fun ExerciseProgressChart(
 
                         if (chartWidth <= 0 || chartHeight <= 0) return@Canvas
 
-                        // Horizontal gridlines (3 lines)
+                        // Horizontal gridlines (3 lines with Y-axis labels)
                         val gridLines = 3
                         for (i in 0 until gridLines) {
                             val y = paddingTop + (chartHeight / (gridLines - 1)) * i
+                            val gridVal = maxValue - (i.toFloat() / (gridLines - 1)) * (maxValue - minValue)
+                            val gridText = if (isWeightMetric) "${gridVal.toInt()} kg" else "${gridVal.toInt()} r"
+                            
+                            val textResult = textMeasurer.measure(
+                                text = gridText,
+                                style = LabelCaps.copy(fontSize = 9.sp, color = labelColor)
+                            )
+
+                            // Draw Y-axis text label on left margin
+                            drawText(
+                                textMeasurer = textMeasurer,
+                                text = gridText,
+                                style = LabelCaps.copy(fontSize = 9.sp, color = labelColor),
+                                topLeft = Offset(
+                                    x = paddingLeft - textResult.size.width - 6.dp.toPx(),
+                                    y = y - textResult.size.height / 2f
+                                )
+                            )
+
+                            // Draw dashed horizontal gridline
                             drawLine(
                                 color = gridColor,
                                 start = Offset(paddingLeft, y),
@@ -104,10 +154,10 @@ fun ExerciseProgressChart(
                         }
 
                         // Map points to coordinates
-                        val offsets = points.mapIndexed { index, point ->
+                        val offsets = values.mapIndexed { index, value ->
                             val x = paddingLeft + (index.toFloat() / (points.size - 1)) * chartWidth
-                            val weightNormalized = ((point.est1RM - minWeight) / (maxWeight - minWeight)).toFloat()
-                            val y = paddingTop + chartHeight * (1f - weightNormalized)
+                            val valueNormalized = ((value - minValue) / (maxValue - minValue)).toFloat()
+                            val y = paddingTop + chartHeight * (1f - valueNormalized)
                             Offset(x, y)
                         }
 

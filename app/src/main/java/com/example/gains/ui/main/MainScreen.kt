@@ -41,6 +41,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -347,54 +350,54 @@ fun WorkoutTabContent(
 
         // History List
         when (state) {
-            MainScreenUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                MainScreenUiState.Loading -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
                 }
-            }
-            is MainScreenUiState.Error -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "Error loading history: ${state.throwable.message}",
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-            is MainScreenUiState.Success -> {
-                val sessions = state.sessions
-                if (sessions.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                is MainScreenUiState.Error -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            "No workouts logged yet.\nTime to make some GAINS!",
-                            color = MaterialTheme.colorScheme.secondary,
-                            fontSize = 15.sp,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 22.sp
+                            "Error loading history: ${state.throwable.message}",
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
                         )
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(vertical = 4.dp)
-                    ) {
-                        items(sessions, key = { it.id }) { session ->
-                            HistoryCard(
-                                session = session,
-                                onClick = { onItemClick(WorkoutLogger(session.id)) }
+                }
+                is MainScreenUiState.Success -> {
+                    val sessions = state.sessions
+                    if (sessions.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No workouts logged yet.\nTime to make some GAINS!",
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontSize = 15.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 22.sp
                             )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            items(sessions, key = { it.id }) { session ->
+                                HistoryCard(
+                                    session = session,
+                                    onClick = { onItemClick(WorkoutLogger(session.id)) }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
     if (showWorkoutTypeDialog) {
         SelectWorkoutTypeDialog(

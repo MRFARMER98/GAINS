@@ -47,15 +47,10 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
 
     fun startNewSession(workoutType: String, onSessionCreated: (Long) -> Unit) {
         viewModelScope.launch {
-            val dateStr = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date())
-            val displayType = when(workoutType) {
-                "RUN" -> "Running"
-                "HYROX" -> "Hyrox"
-                else -> "Gym"
-            }
+            val dayOfWeek = SimpleDateFormat("EEEE", Locale.getDefault()).format(Date())
             val session = WorkoutSession(
                 timestamp = System.currentTimeMillis(),
-                name = "$displayType Session on $dateStr",
+                name = dayOfWeek,
                 workoutType = workoutType
             )
             val sessionId = repository.insertSession(session)

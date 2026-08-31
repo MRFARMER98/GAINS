@@ -24,7 +24,9 @@ data class ExerciseSessionHistoryGroup(
 data class ExerciseProgressPoint(
     val timestamp: Long,
     val maxWeight: Double,
-    val est1RM: Double
+    val maxReps: Int,
+    val sessionVolume: Double,
+    val repsAtMaxWeight: Int
 )
 
 sealed interface ExerciseDetailUiState {
@@ -33,10 +35,10 @@ sealed interface ExerciseDetailUiState {
     data class Success(
         val exercise: Exercise,
         val maxWeight: Double,
-        val est1RM: Double,
+        val maxReps: Int,
         val maxSessionVolume: Double,
-        val totalSets: Int,
-        val totalReps: Int,
+        val repsAtMaxWeight: Int,
+        val bestSetId: Int?,
         val progressPoints: List<ExerciseProgressPoint>,
         val historyGroups: List<ExerciseSessionHistoryGroup>
     ) : ExerciseDetailUiState
@@ -57,9 +59,10 @@ class ExerciseDetailViewModel(
             val completedSets = historySets.filter { it.isCompleted }
             
             val maxWeight = completedSets.maxOfOrNull { it.weight } ?: 0.0
-            val est1RM = completedSets.maxOfOrNull { calculate1RM(it.weight, it.reps) } ?: 0.0
-            val totalSets = completedSets.size
-            val totalReps = completedSets.sumOf { it.reps }
+            val maxReps = completedSets.maxOfOrNull { it.reps } ?: 0
+            val repsAtMaxWeight = if (maxWeight > 0.0) {
+                completedSets.filter { it.weight == maxWeight }.maxOfOrNull { it.reps } ?: 0
+            } else 0
 
             // Group sets by session
             val groupedBySession = completedSets
@@ -86,21 +89,29 @@ class ExerciseDetailViewModel(
                 .sortedBy { it.sessionTimestamp }
                 .map { group ->
                     val maxW = group.maxWeightInSession
-                    val max1RM = group.sets.maxOfOrNull { calculate1RM(it.weight, it.reps) } ?: 0.0
+                    val maxR = group.sets.maxOfOrNull { it.reps } ?: 0
+                    val repsAtMaxW = if (maxW > 0.0) {
+                        group.sets.filter { it.weight == maxW }.maxOfOrNull { it.reps } ?: 0
+                    } else 0
                     ExerciseProgressPoint(
                         timestamp = group.sessionTimestamp,
                         maxWeight = maxW,
-                        est1RM = max1RM
+                        maxReps = maxR,
+                        sessionVolume = group.sessionVolume,
+                        repsAtMaxWeight = repsAtMaxW
                     )
                 }
+
+            val allTimeBestSet = completedSets.maxWithOrNull(compareBy({ it.weight }, { it.reps }))
+            val bestSetId = if (allTimeBestSet != null && allTimeBestSet.weight > 0) allTimeBestSet.id else null
 
             ExerciseDetailUiState.Success(
                 exercise = exercise,
                 maxWeight = maxWeight,
-                est1RM = est1RM,
+                maxReps = maxReps,
                 maxSessionVolume = maxSessionVolume,
-                totalSets = totalSets,
-                totalReps = totalReps,
+                repsAtMaxWeight = repsAtMaxWeight,
+                bestSetId = bestSetId,
                 progressPoints = progressPoints,
                 historyGroups = groupedBySession
             )
@@ -114,16 +125,6 @@ class ExerciseDetailViewModel(
     fun saveNotes(notes: String) {
         viewModelScope.launch {
             repository.updateExerciseNotes(exerciseId, if (notes.isBlank()) null else notes)
-        }
-    }
-
-    companion object {
-        fun calculate1RM(weight: Double, reps: Int): Double {
-            if (reps <= 0) return 0.0
-            if (reps == 1) return weight
-            // Epley Formula: W * (1 + R/30) rounded to 1 decimal
-            val unrounded = weight * (1.0 + reps / 30.0)
-            return (unrounded * 10.0).roundToInt() / 10.0
         }
     }
 }
