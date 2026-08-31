@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import com.example.gains.data.ExerciseWithSummary
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.asImageBitmap
@@ -32,6 +34,7 @@ import java.io.File
 import java.io.FileOutputStream
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -114,14 +117,18 @@ fun MainScreen(
     
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val syncState by viewModel.syncState.collectAsStateWithLifecycle()
-    val allExercises by app.repository.allExercises.collectAsStateWithLifecycle(initialValue = emptyList())
+    val exercisesWithSummary by viewModel.exercisesWithSummary.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allPlannedSessions by viewModel.allPlannedSessions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allLabels by viewModel.allLabels.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    val sessions = (state as? MainScreenUiState.Success)?.sessions ?: emptyList()
 
     var selectedTab by remember { mutableStateOf(0) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            // Sleek Custom Navigation Bar (Monochrome with Infrared dots, no capsules)
+            // Sleek Custom Navigation Bar
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -149,6 +156,12 @@ fun MainScreen(
                     CustomTabItem(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
+                        icon = Icons.Default.CalendarMonth,
+                        label = "PLANNER"
+                    )
+                    CustomTabItem(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
                         icon = Icons.Default.Settings,
                         label = "SETTINGS"
                     )
@@ -172,9 +185,26 @@ fun MainScreen(
                 }
                 1 -> {
                     ExercisesTabContent(
-                        exercises = allExercises,
+                        exercises = exercisesWithSummary,
                         syncState = syncState,
                         onSyncClick = { viewModel.syncDatabase() },
+                        onItemClick = onItemClick
+                    )
+                }
+                2 -> {
+                    PlannerTabContent(
+                        sessions = sessions,
+                        plannedSessions = allPlannedSessions,
+                        labels = allLabels,
+                        onSchedulePlan = { date, name, type, labelId ->
+                            viewModel.schedulePlannedSession(date, name, type, labelId)
+                        },
+                        onDeletePlan = { id -> viewModel.deletePlannedSession(id) },
+                        onStartPlan = { planned ->
+                            viewModel.startPlannedSession(planned) { sessionId ->
+                                onItemClick(WorkoutLogger(sessionId))
+                            }
+                        },
                         onItemClick = onItemClick
                     )
                 }
@@ -586,21 +616,35 @@ fun WorkoutTypeOptionRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExercisesTabContent(
-    exercises: List<Exercise>,
+    exercises: List<ExerciseWithSummary>,
     syncState: SyncState,
     onSyncClick: () -> Unit,
     onItemClick: (NavKey) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    val filteredExercises = remember(exercises, searchQuery) {
-        if (searchQuery.isBlank()) {
-            exercises
-        } else {
-            exercises.filter {
-                it.name.contains(searchQuery, ignoreCase = true) ||
-                it.muscleGroup.contains(searchQuery, ignoreCase = true)
-            }
+    var selectedMuscleGroup by remember { mutableStateOf("ALL") }
+
+    val muscleGroups = remember { listOf("ALL", "CHEST", "BACK", "LEGS", "SHOULDERS", "ARMS", "CORE") }
+
+    val filteredExercises = remember(exercises, searchQuery, selectedMuscleGroup) {
+        exercises.filter { ex ->
+            val matchesQuery = searchQuery.isBlank() ||
+                    ex.name.contains(searchQuery, ignoreCase = true) ||
+                    ex.muscleGroup.contains(searchQuery, ignoreCase = true)
+            val matchesMuscle = selectedMuscleGroup == "ALL" ||
+                    ex.muscleGroup.contains(selectedMuscleGroup, ignoreCase = true)
+            matchesQuery && matchesMuscle
         }
+    }
+
+    val loggedExercises = remember(filteredExercises) {
+        filteredExercises.filter { it.sessionCount > 0 }
+            .sortedByDescending { it.lastLoggedTimestamp ?: 0L }
+    }
+
+    val otherExercises = remember(filteredExercises) {
+        filteredExercises.filter { it.sessionCount == 0 }
+            .sortedBy { it.name }
     }
 
     Column(
@@ -721,7 +765,39 @@ fun ExercisesTabContent(
             )
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Muscle Group Filter Chips
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items(muscleGroups) { group ->
+                val isSelected = selectedMuscleGroup == group
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelected) PrimarySoftBg else MaterialTheme.colorScheme.surface)
+                        .border(
+                            BorderStroke(
+                                if (isSelected) 1.5.dp else 1.dp,
+                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            ),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable { selectedMuscleGroup = group }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = group,
+                        style = LabelCaps.copy(fontSize = 9.sp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         if (filteredExercises.isEmpty()) {
             Box(
@@ -731,7 +807,7 @@ fun ExercisesTabContent(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (searchQuery.isNotEmpty()) "No exercises match your search." else "No exercises cataloged.\nTap the sync button to import from Google Sheets.",
+                    text = if (searchQuery.isNotEmpty() || selectedMuscleGroup != "ALL") "No exercises match your filter." else "No exercises cataloged.\nTap the sync button to import from Google Sheets.",
                     color = MaterialTheme.colorScheme.secondary,
                     fontSize = 15.sp,
                     textAlign = TextAlign.Center,
@@ -744,38 +820,90 @@ fun ExercisesTabContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
-                items(filteredExercises, key = { it.id }) { exercise ->
-                    GainsCard(
-                        modifier = Modifier.clickable { onItemClick(ExerciseDetail(exercise.id)) }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = exercise.name,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .background(PrimarySoftBg, RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = exercise.muscleGroup.uppercase(),
-                                    style = LabelCaps.copy(fontSize = 9.sp),
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
+                if (loggedExercises.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "YOUR EXERCISES",
+                            style = LabelCaps,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    items(loggedExercises, key = { it.id }) { exercise ->
+                        ExerciseSummaryCard(exercise = exercise, onClick = { onItemClick(ExerciseDetail(exercise.id)) })
                     }
                 }
+
+                if (otherExercises.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "OTHER EXERCISES",
+                            style = LabelCaps,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    items(otherExercises, key = { it.id }) { exercise ->
+                        ExerciseSummaryCard(exercise = exercise, onClick = { onItemClick(ExerciseDetail(exercise.id)) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExerciseSummaryCard(
+    exercise: ExerciseWithSummary,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    GainsCard(
+        modifier = modifier.clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = exercise.name,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                val subtitle = if (exercise.sessionCount > 0) {
+                    val prText = if (exercise.maxWeight > 0.0) "${exercise.maxWeight} kg" else "${exercise.maxReps} reps"
+                    val sessionText = if (exercise.sessionCount == 1) "1 session" else "${exercise.sessionCount} sessions"
+                    "PR: $prText  •  $sessionText"
+                } else {
+                    "Not logged yet"
+                }
+                Text(
+                    text = subtitle,
+                    style = BodySemiBold.copy(fontSize = 11.sp),
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Box(
+                modifier = Modifier
+                    .background(PrimarySoftBg, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = exercise.muscleGroup.uppercase(),
+                    style = LabelCaps.copy(fontSize = 9.sp),
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }

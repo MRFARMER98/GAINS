@@ -43,11 +43,36 @@ data class LoggedSetWithSession(
     val isCompleted: Boolean
 )
 
+data class ExerciseWithSummary(
+    val id: Int,
+    val name: String,
+    val muscleGroup: String,
+    val notes: String?,
+    val maxWeight: Double,
+    val maxReps: Int,
+    val sessionCount: Int,
+    val lastLoggedTimestamp: Long?
+)
+
 @Dao
 interface GainsDao {
     // Exercises
     @Query("SELECT * FROM exercises ORDER BY name ASC")
     fun getAllExercises(): Flow<List<Exercise>>
+
+    @Query("""
+        SELECT e.id, e.name, e.muscleGroup, e.notes,
+               COALESCE(MAX(s.weight), 0.0) AS maxWeight,
+               COALESCE(MAX(s.reps), 0) AS maxReps,
+               COUNT(DISTINCT s.sessionId) AS sessionCount,
+               MAX(w.timestamp) AS lastLoggedTimestamp
+        FROM exercises e
+        LEFT JOIN logged_sets s ON e.id = s.exerciseId AND s.isCompleted = 1
+        LEFT JOIN workout_sessions w ON s.sessionId = w.id
+        GROUP BY e.id
+        ORDER BY e.name ASC
+    """)
+    fun getAllExercisesWithSummary(): Flow<List<ExerciseWithSummary>>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertExercise(exercise: Exercise): Long
@@ -144,4 +169,20 @@ interface GainsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateProfile(profile: UserProfile)
+
+    // Planned Sessions
+    @Query("SELECT * FROM planned_sessions ORDER BY dateTimestamp ASC")
+    fun getAllPlannedSessions(): Flow<List<PlannedSession>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPlannedSession(plannedSession: PlannedSession): Long
+
+    @Update
+    suspend fun updatePlannedSession(plannedSession: PlannedSession)
+
+    @Delete
+    suspend fun deletePlannedSession(plannedSession: PlannedSession)
+
+    @Query("DELETE FROM planned_sessions WHERE id = :id")
+    suspend fun deletePlannedSessionById(id: Long)
 }

@@ -9,14 +9,19 @@ import kotlinx.coroutines.flow.Flow
 
 interface DataRepository {
     val allExercises: Flow<List<Exercise>>
+    val allExercisesWithSummary: Flow<List<ExerciseWithSummary>>
     val allSessions: Flow<List<WorkoutSession>>
     val allSessionsWithLabels: Flow<List<WorkoutSessionWithLabel>>
     val allLabels: Flow<List<WorkoutLabel>>
     val userProfile: Flow<UserProfile?>
+    val allPlannedSessions: Flow<List<PlannedSession>>
 
     suspend fun insertSession(session: WorkoutSession): Long
     suspend fun updateSession(session: WorkoutSession)
     suspend fun deleteSession(session: WorkoutSession)
+
+    suspend fun insertPlannedSession(plannedSession: PlannedSession): Long
+    suspend fun deletePlannedSessionById(id: Long)
 
     suspend fun insertLoggedSet(loggedSet: LoggedSet): Long
     suspend fun updateLoggedSet(loggedSet: LoggedSet)
@@ -43,14 +48,19 @@ interface DataRepository {
 
 class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
     override val allExercises: Flow<List<Exercise>> = gainsDao.getAllExercises()
+    override val allExercisesWithSummary: Flow<List<ExerciseWithSummary>> = gainsDao.getAllExercisesWithSummary()
     override val allSessions: Flow<List<WorkoutSession>> = gainsDao.getAllSessions()
     override val allSessionsWithLabels: Flow<List<WorkoutSessionWithLabel>> = gainsDao.getAllSessionsWithLabels()
     override val allLabels: Flow<List<WorkoutLabel>> = gainsDao.getAllLabels()
     override val userProfile: Flow<UserProfile?> = gainsDao.getUserProfile()
+    override val allPlannedSessions: Flow<List<PlannedSession>> = gainsDao.getAllPlannedSessions()
 
     override suspend fun insertSession(session: WorkoutSession): Long = gainsDao.insertSession(session)
     override suspend fun updateSession(session: WorkoutSession) = gainsDao.updateSession(session)
     override suspend fun deleteSession(session: WorkoutSession) = gainsDao.deleteSession(session)
+
+    override suspend fun insertPlannedSession(plannedSession: PlannedSession): Long = gainsDao.insertPlannedSession(plannedSession)
+    override suspend fun deletePlannedSessionById(id: Long) = gainsDao.deletePlannedSessionById(id)
 
     override suspend fun insertLoggedSet(loggedSet: LoggedSet): Long = gainsDao.insertLoggedSet(loggedSet)
     override suspend fun updateLoggedSet(loggedSet: LoggedSet) = gainsDao.updateLoggedSet(loggedSet)

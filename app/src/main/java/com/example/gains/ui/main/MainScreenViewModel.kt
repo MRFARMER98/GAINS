@@ -3,6 +3,8 @@ package com.example.gains.ui.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.gains.data.DataRepository
+import com.example.gains.data.ExerciseWithSummary
+import com.example.gains.data.PlannedSession
 import com.example.gains.data.UserProfile
 import com.example.gains.data.WorkoutLabel
 import com.example.gains.data.WorkoutSession
@@ -42,8 +44,46 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
     val allLabels: StateFlow<List<WorkoutLabel>> = repository.allLabels
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val exercisesWithSummary: StateFlow<List<ExerciseWithSummary>> = repository.allExercisesWithSummary
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allPlannedSessions: StateFlow<List<PlannedSession>> = repository.allPlannedSessions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
+
+    fun schedulePlannedSession(dateTimestamp: Long, name: String, workoutType: String, labelId: Int? = null) {
+        viewModelScope.launch {
+            val plannedSession = PlannedSession(
+                dateTimestamp = dateTimestamp,
+                name = name,
+                workoutType = workoutType,
+                labelId = labelId
+            )
+            repository.insertPlannedSession(plannedSession)
+        }
+    }
+
+    fun deletePlannedSession(id: Long) {
+        viewModelScope.launch {
+            repository.deletePlannedSessionById(id)
+        }
+    }
+
+    fun startPlannedSession(planned: PlannedSession, onSessionCreated: (Long) -> Unit) {
+        viewModelScope.launch {
+            val session = WorkoutSession(
+                timestamp = System.currentTimeMillis(),
+                name = planned.name,
+                workoutType = planned.workoutType,
+                labelId = planned.labelId
+            )
+            val sessionId = repository.insertSession(session)
+            repository.deletePlannedSessionById(planned.id)
+            onSessionCreated(sessionId)
+        }
+    }
 
     fun startNewSession(workoutType: String, onSessionCreated: (Long) -> Unit) {
         viewModelScope.launch {

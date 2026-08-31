@@ -70,3 +70,13 @@ data class UserProfile(
     val age: Int? = null,
     val currentWeight: Double? = null
 )
+
+@Entity(tableName = "planned_sessions")
+data class PlannedSession(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val dateTimestamp: Long,
+    val name: String,
+    val workoutType: String = "GYM",
+    val labelId: Int? = null,
+    val isCompleted: Boolean = false
+)
