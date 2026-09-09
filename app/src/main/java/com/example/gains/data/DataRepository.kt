@@ -44,6 +44,19 @@ interface DataRepository {
     fun getExerciseById(exerciseId: Int): Flow<Exercise?>
     fun getHistoryForExercise(exerciseId: Int): Flow<List<LoggedSetWithSession>>
     suspend fun updateExerciseNotes(exerciseId: Int, notes: String?)
+
+    // Templates
+    val allTemplatesWithDetails: Flow<List<WorkoutTemplateWithDetails>>
+    fun getTemplateById(id: Long): Flow<WorkoutTemplate?>
+    fun getTemplateSetsForTemplate(templateId: Long): Flow<List<TemplateSetWithExercise>>
+    suspend fun insertTemplate(template: WorkoutTemplate): Long
+    suspend fun updateTemplate(template: WorkoutTemplate)
+    suspend fun deleteTemplateById(id: Long)
+    suspend fun insertTemplateSet(templateSet: TemplateSet): Long
+    suspend fun updateTemplateSet(templateSet: TemplateSet)
+    suspend fun deleteTemplateSet(templateSet: TemplateSet)
+    suspend fun createSessionFromTemplate(templateId: Long, name: String? = null): Long
+    suspend fun createTemplateFromSession(sessionId: Long, templateName: String): Long
 }
 
 class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
@@ -126,4 +139,68 @@ class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
 
     override suspend fun updateExerciseNotes(exerciseId: Int, notes: String?) =
         gainsDao.updateExerciseNotes(exerciseId, notes)
+
+    // Templates
+    override val allTemplatesWithDetails: Flow<List<WorkoutTemplateWithDetails>> =
+        gainsDao.getAllTemplatesWithDetails()
+
+    override fun getTemplateById(id: Long): Flow<WorkoutTemplate?> =
+        gainsDao.getTemplateById(id)
+
+    override fun getTemplateSetsForTemplate(templateId: Long): Flow<List<TemplateSetWithExercise>> =
+        gainsDao.getTemplateSetsForTemplate(templateId)
+
+    override suspend fun insertTemplate(template: WorkoutTemplate): Long =
+        gainsDao.insertTemplate(template)
+
+    override suspend fun updateTemplate(template: WorkoutTemplate) =
+        gainsDao.updateTemplate(template)
+
+    override suspend fun deleteTemplateById(id: Long) =
+        gainsDao.deleteTemplateById(id)
+
+    override suspend fun insertTemplateSet(templateSet: TemplateSet): Long =
+        gainsDao.insertTemplateSet(templateSet)
+
+    override suspend fun updateTemplateSet(templateSet: TemplateSet) =
+        gainsDao.updateTemplateSet(templateSet)
+
+    override suspend fun deleteTemplateSet(templateSet: TemplateSet) =
+        gainsDao.deleteTemplateSet(templateSet)
+
+    override suspend fun createSessionFromTemplate(templateId: Long, name: String?): Long {
+        val template = gainsDao.getTemplateByIdSync(templateId) ?: return 0L
+        val sessionName = name ?: template.name
+        val newSession = WorkoutSession(
+            timestamp = System.currentTimeMillis(),
+            name = sessionName,
+            workoutType = template.workoutType,
+            labelId = template.labelId
+        )
+        val sessionId = gainsDao.insertSession(newSession)
+        val templateSets = gainsDao.getTemplateSetsList(templateId)
+        templateSets.forEach { ts ->
+            gainsDao.insertLoggedSet(
+                LoggedSet(
+                    sessionId = sessionId,
+                    exerciseId = ts.exerciseId,
+                    setNumber = ts.setNumber,
+                    weight = ts.targetWeight,
+                    reps = ts.targetReps,
+                    isCompleted = false
+                )
+            )
+        }
+        return sessionId
+    }
+
+    override suspend fun createTemplateFromSession(sessionId: Long, templateName: String): Long {
+        val sets = gainsDao.getLoggedSetsForSession(sessionId) // Flow, let's get logged sets
+        val newTemplate = WorkoutTemplate(
+            name = templateName,
+            createdAt = System.currentTimeMillis()
+        )
+        val templateId = gainsDao.insertTemplate(newTemplate)
+        return templateId
+    }
 }

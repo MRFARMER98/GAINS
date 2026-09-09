@@ -10,7 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [Exercise::class, WorkoutSession::class, LoggedSet::class, WorkoutLabel::class, UserProfile::class, PlannedSession::class], version = 9, exportSchema = false)
+@Database(entities = [Exercise::class, WorkoutSession::class, LoggedSet::class, WorkoutLabel::class, UserProfile::class, PlannedSession::class, WorkoutTemplate::class, TemplateSet::class], version = 10, exportSchema = false)
 abstract class GainsDatabase : RoomDatabase() {
     abstract fun gainsDao(): GainsDao
 
@@ -89,6 +89,36 @@ abstract class GainsDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `planned_sessions` ADD COLUMN `templateId` INTEGER DEFAULT NULL")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `workout_templates` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `workoutType` TEXT NOT NULL DEFAULT 'GYM',
+                        `labelId` INTEGER DEFAULT NULL,
+                        `notes` TEXT DEFAULT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                """)
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `template_sets` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `templateId` INTEGER NOT NULL,
+                        `exerciseId` INTEGER NOT NULL,
+                        `setNumber` INTEGER NOT NULL,
+                        `targetWeight` REAL NOT NULL,
+                        `targetReps` INTEGER NOT NULL,
+                        FOREIGN KEY(`templateId`) REFERENCES `workout_templates`(`id`) ON DELETE CASCADE,
+                        FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON DELETE CASCADE
+                    )
+                """)
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_template_sets_templateId` ON `template_sets` (`templateId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_template_sets_exerciseId` ON `template_sets` (`exerciseId`)")
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): GainsDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -97,7 +127,7 @@ abstract class GainsDatabase : RoomDatabase() {
                     "gains_database"
                 )
                 .addCallback(GainsDatabaseCallback())
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .fallbackToDestructiveMigration(true)
                 .build()
                 INSTANCE = instance

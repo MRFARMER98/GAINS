@@ -97,7 +97,7 @@ fun AddExerciseDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(SystemGrayLight)
+                                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
                                 .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)), RoundedCornerShape(8.dp))
                                 .clickable { onExerciseSelect(exercise) }
                                 .padding(12.dp),

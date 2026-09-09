@@ -78,5 +78,46 @@ data class PlannedSession(
     val name: String,
     val workoutType: String = "GYM",
     val labelId: Int? = null,
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    val templateId: Long? = null
+)
+
+@Entity(tableName = "workout_templates")
+data class WorkoutTemplate(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val workoutType: String = "GYM",
+    val labelId: Int? = null,
+    val notes: String? = null,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "template_sets",
+    foreignKeys = [
+        ForeignKey(
+            entity = WorkoutTemplate::class,
+            parentColumns = ["id"],
+            childColumns = ["templateId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = Exercise::class,
+            parentColumns = ["id"],
+            childColumns = ["exerciseId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index(value = ["templateId"]),
+        Index(value = ["exerciseId"])
+    ]
+)
+data class TemplateSet(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val templateId: Long,
+    val exerciseId: Int,
+    val setNumber: Int,
+    val targetWeight: Double,
+    val targetReps: Int
 )

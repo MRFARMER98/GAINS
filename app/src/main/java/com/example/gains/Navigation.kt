@@ -33,10 +33,14 @@ fun MainNavigation() {
         entry<WorkoutLogger> { key ->
           WorkoutLoggerScreen(
             sessionId = key.sessionId,
+            templateId = key.templateId,
+            isTemplateMode = key.isTemplateMode,
+            isPlannedMode = key.isPlannedMode,
+            plannedId = key.plannedId,
             onBackClick = { backStack.removeLastOrNull() },
             onItemClick = { navKey -> backStack.add(navKey) },
             repository = app.repository,
-            modifier = Modifier.safeDrawingPadding().padding(16.dp)
+            modifier = Modifier.safeDrawingPadding()
           )
         }
         entry<ExerciseDetail> { key ->

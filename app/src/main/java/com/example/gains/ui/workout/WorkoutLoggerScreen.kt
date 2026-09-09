@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,6 +40,8 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,6 +66,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.gains.data.DataRepository
+import com.example.gains.data.LoggedSetWithExercise
 import com.example.gains.data.WorkoutLabel
 import com.example.gains.theme.HeaderBold
 import com.example.gains.theme.InfraredAccent
@@ -81,23 +85,51 @@ import androidx.navigation3.runtime.NavKey
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkoutLoggerScreen(
-    sessionId: Long,
+    sessionId: Long = 0L,
+    templateId: Long = 0L,
+    isTemplateMode: Boolean = false,
+    isPlannedMode: Boolean = false,
+    plannedId: Long = 0L,
     onBackClick: () -> Unit,
     repository: DataRepository,
     onItemClick: ((NavKey) -> Unit)? = null,
     modifier: Modifier = Modifier,
-    viewModel: WorkoutLoggerViewModel = viewModel(key = sessionId.toString()) { WorkoutLoggerViewModel(sessionId, repository) }
+    viewModel: WorkoutLoggerViewModel = viewModel(key = if (isTemplateMode) "tmpl_${templateId}_plan_$plannedId" else "sess_$sessionId") {
+        WorkoutLoggerViewModel(sessionId, templateId, isTemplateMode, plannedId, repository)
+    }
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
+    val template by viewModel.template.collectAsStateWithLifecycle()
+    val templateSets by viewModel.templateSets.collectAsStateWithLifecycle()
     val loggedSets by viewModel.loggedSets.collectAsStateWithLifecycle()
     val exercises by viewModel.exercises.collectAsStateWithLifecycle()
     val allLabels by viewModel.allLabels.collectAsStateWithLifecycle()
-    
+
+    val effectiveSets = if (isTemplateMode) {
+        templateSets.map { ts ->
+            LoggedSetWithExercise(
+                id = ts.id,
+                sessionId = 0L,
+                exerciseId = ts.exerciseId,
+                exerciseName = ts.exerciseName,
+                exerciseMuscleGroup = ts.exerciseMuscleGroup,
+                setNumber = ts.setNumber,
+                weight = ts.targetWeight,
+                reps = ts.targetReps,
+                isCompleted = false
+            )
+        }
+    } else {
+        loggedSets
+    }
+
     var showAddExerciseDialog by remember { mutableStateOf(false) }
     var showLabelPickerDialog by remember { mutableStateOf(false) }
     var isEditingFinished by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showSaveAsTemplateDialog by remember { mutableStateOf(false) }
+    var templateNameInput by remember { mutableStateOf("") }
 
     val lazyListState = rememberLazyListState()
     val isExpanded = remember {
@@ -132,13 +164,18 @@ fun WorkoutLoggerScreen(
         }
     }
 
-    val displayTitle = when (session?.workoutType) {
+    val displayTitle = if (isTemplateMode) {
+        template?.name ?: "Routine Builder"
+    } else when (session?.workoutType) {
         "RUN" -> "Running Session"
         "HYROX" -> "Hyrox Challenge"
         else -> "Gym Workout"
     }
 
-    val isFinished = session?.endTime != null && session?.endTime!! > 0L
+    val activeLabelId = if (isTemplateMode) template?.labelId else session?.labelId
+    val activeLabel = allLabels.find { it.id == activeLabelId }
+
+    val isFinished = !isTemplateMode && session?.endTime != null && session?.endTime!! > 0L
     val isReadOnly = isFinished && !isEditingFinished
 
     Scaffold(
@@ -156,7 +193,6 @@ fun WorkoutLoggerScreen(
                             )
                             
                             // Colored Label Badge or + TAG button in transparent toolbar
-                            val activeLabel = allLabels.find { it.id == session?.labelId }
                             if (activeLabel != null) {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 val labelColor = try {
@@ -195,10 +231,16 @@ fun WorkoutLoggerScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(2.dp))
+                        val subtitleText = when {
+                            isPlannedMode -> "PLANNED WORKOUT"
+                            isTemplateMode -> "ROUTINE TEMPLATE"
+                            isFinished -> "TOTAL DURATION: $elapsedTime"
+                            else -> "DURATION: $elapsedTime"
+                        }
                         Text(
-                            text = if (isFinished) "TOTAL DURATION: $elapsedTime" else "DURATION: $elapsedTime",
+                            text = subtitleText,
                             style = LabelCaps.copy(fontSize = 9.sp),
-                            color = if (isFinished) MaterialTheme.colorScheme.secondary else InfraredAccent
+                            color = if (isTemplateMode || isPlannedMode) MaterialTheme.colorScheme.primary else if (isFinished) MaterialTheme.colorScheme.secondary else InfraredAccent
                         )
                     }
                 },
@@ -212,7 +254,28 @@ fun WorkoutLoggerScreen(
                     }
                 },
                 actions = {
-                    if (session != null) {
+                    if (isTemplateMode) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = {
+                                viewModel.startSessionFromTemplate { newSessionId ->
+                                    onItemClick?.invoke(com.example.gains.WorkoutLogger(sessionId = newSessionId))
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Start Workout",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            TextButton(onClick = {
+                                viewModel.saveTemplate(displayTitle, activeLabel?.id)
+                                onBackClick()
+                            }) {
+                                Text("SAVE", style = LabelCaps, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    } else if (session != null) {
                         if (!isFinished) {
                             TextButton(onClick = { viewModel.finishSession() }) {
                                   Text("FINISH", style = LabelCaps, color = InfraredAccent)
@@ -257,6 +320,22 @@ fun WorkoutLoggerScreen(
                                                 isEditingFinished = true
                                             }
                                         )
+                                         DropdownMenuItem(
+                                            text = { Text("Save as Template", style = BodySemiBold.copy(fontSize = 14.sp)) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.Edit,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                templateNameInput = session?.name ?: "My Template"
+                                                showSaveAsTemplateDialog = true
+                                            }
+                                        )
                                         DropdownMenuItem(
                                             text = { Text("Delete Workout", style = BodySemiBold.copy(fontSize = 14.sp), color = MaterialTheme.colorScheme.error) },
                                             leadingIcon = {
@@ -284,8 +363,9 @@ fun WorkoutLoggerScreen(
             )
         },
         floatingActionButton = {
-            // Show FAB only for active GYM workouts (disable adding exercises once finished unless editing)
-            if ((session?.workoutType == "GYM" || session?.workoutType == null) && !isReadOnly) {
+            val currentWorkoutType = if (isTemplateMode) (template?.workoutType ?: "GYM") else (session?.workoutType ?: "GYM")
+            // Show FAB only for GYM workouts (both in template/planning mode and active logging mode)
+            if (currentWorkoutType == "GYM" && !isReadOnly) {
                 ExtendedFloatingActionButton(
                     onClick = { showAddExerciseDialog = true },
                     icon = { Icon(Icons.Default.Add, contentDescription = "Add") },
@@ -304,7 +384,7 @@ fun WorkoutLoggerScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            val workoutType = session?.workoutType ?: "GYM"
+            val workoutType = if (isTemplateMode) (template?.workoutType ?: "GYM") else (session?.workoutType ?: "GYM")
             
             if (workoutType != "GYM") {
                 // RUN or HYROX placeholder (since user requested no specifics yet)
@@ -326,21 +406,21 @@ fun WorkoutLoggerScreen(
                         )
                     }
                 }
-            } else if (loggedSets.isEmpty()) {
+            } else if (effectiveSets.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "Log your first exercise!",
+                            text = if (isTemplateMode) "Add exercises to your routine!" else "Log your first exercise!",
                             color = MaterialTheme.colorScheme.secondary,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Tap the '+' button to begin.",
+                            text = "Tap the 'ADD EXERCISE' button below.",
                             color = MaterialTheme.colorScheme.outline,
                             style = LabelCaps
                         )
@@ -348,7 +428,7 @@ fun WorkoutLoggerScreen(
                 }
             } else {
                 // Group logged sets by muscle group/category for gym workouts
-                val groupedByMuscle = loggedSets.groupBy { it.exerciseMuscleGroup }
+                val groupedByMuscle = effectiveSets.groupBy { it.exerciseMuscleGroup }
 
                 LazyColumn(
                     state = lazyListState,
@@ -396,6 +476,7 @@ fun WorkoutLoggerScreen(
                                     onToggleComplete = { setId -> viewModel.toggleSetCompleted(setId) },
                                     onDeleteSet = { setId -> viewModel.deleteSet(setId) },
                                     isReadOnly = isReadOnly,
+                                    isTemplateMode = isTemplateMode,
                                     onHeaderClick = { onItemClick?.invoke(ExerciseDetail(exerciseId)) }
                                 )
                             }
@@ -419,7 +500,7 @@ fun WorkoutLoggerScreen(
         if (showLabelPickerDialog) {
             SelectSessionLabelDialog(
                 labels = allLabels,
-                currentLabelId = session?.labelId,
+                currentLabelId = activeLabelId,
                 onDismiss = { showLabelPickerDialog = false },
                 onLabelSelected = { labelId ->
                     viewModel.assignLabelToSession(labelId)
@@ -437,6 +518,69 @@ fun WorkoutLoggerScreen(
                     onBackClick()
                 }
             )
+        }
+
+        if (showSaveAsTemplateDialog) {
+            Dialog(onDismissRequest = { showSaveAsTemplateDialog = false }) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), RoundedCornerShape(16.dp))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "SAVE AS TEMPLATE",
+                            style = LabelCaps,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        )
+                        OutlinedTextField(
+                            value = templateNameInput,
+                            onValueChange = { templateNameInput = it },
+                            label = { Text("Template Name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(onClick = { showSaveAsTemplateDialog = false }) {
+                                Text("CANCEL", style = LabelCaps, color = MaterialTheme.colorScheme.secondary)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    viewModel.saveAsTemplate(templateNameInput)
+                                    showSaveAsTemplateDialog = false
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                            ) {
+                                Text("SAVE TEMPLATE", style = LabelCaps, color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -544,8 +688,7 @@ fun SelectSessionLabelDialog(
                         }
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                 
                 TextButton(
                     onClick = onDismiss,

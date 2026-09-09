@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import com.example.gains.data.ExerciseWithSummary
+import com.example.gains.data.PlannedSession
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.asImageBitmap
@@ -65,6 +66,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +85,7 @@ import androidx.navigation3.runtime.NavKey
 import com.example.gains.ExerciseDetail
 import com.example.gains.GainsApplication
 import com.example.gains.WorkoutLogger
+import com.example.gains.ui.components.SelectWorkoutTypeDialog
 import com.example.gains.data.Exercise
 import com.example.gains.data.WorkoutLabel
 import com.example.gains.data.WorkoutSessionWithLabel
@@ -120,10 +123,10 @@ fun MainScreen(
     val exercisesWithSummary by viewModel.exercisesWithSummary.collectAsStateWithLifecycle(initialValue = emptyList())
     val allPlannedSessions by viewModel.allPlannedSessions.collectAsStateWithLifecycle(initialValue = emptyList())
     val allLabels by viewModel.allLabels.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allTemplates by viewModel.allTemplates.collectAsStateWithLifecycle(initialValue = emptyList())
 
     val sessions = (state as? MainScreenUiState.Success)?.sessions ?: emptyList()
-
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -180,6 +183,8 @@ fun MainScreen(
                     WorkoutTabContent(
                         state = state,
                         viewModel = viewModel,
+                        plannedSessions = allPlannedSessions,
+                        labels = allLabels,
                         onItemClick = onItemClick
                     )
                 }
@@ -196,12 +201,29 @@ fun MainScreen(
                         sessions = sessions,
                         plannedSessions = allPlannedSessions,
                         labels = allLabels,
-                        onSchedulePlan = { date, name, type, labelId ->
-                            viewModel.schedulePlannedSession(date, name, type, labelId)
+                        templates = allTemplates,
+                        onSchedulePlan = { date, name, type, labelId, templateId ->
+                            viewModel.schedulePlannedSession(date, name, type, labelId, templateId)
                         },
                         onDeletePlan = { id -> viewModel.deletePlannedSession(id) },
                         onStartPlan = { planned ->
                             viewModel.startPlannedSession(planned) { sessionId ->
+                                onItemClick(WorkoutLogger(sessionId))
+                            }
+                        },
+                        onCreateTemplate = { name ->
+                            viewModel.createNewTemplate(name) { id ->
+                                onItemClick(WorkoutLogger(templateId = id, isTemplateMode = true))
+                            }
+                        },
+                        onEditTemplate = { id ->
+                            onItemClick(WorkoutLogger(templateId = id, isTemplateMode = true))
+                        },
+                        onDeleteTemplate = { id ->
+                            viewModel.deleteTemplate(id)
+                        },
+                        onStartTemplate = { id ->
+                            viewModel.createSessionFromTemplate(id) { sessionId ->
                                 onItemClick(WorkoutLogger(sessionId))
                             }
                         },
@@ -312,9 +334,21 @@ private fun calculateStreak(sessions: List<WorkoutSessionWithLabel>): String {
 fun WorkoutTabContent(
     state: MainScreenUiState,
     viewModel: MainScreenViewModel,
+    plannedSessions: List<PlannedSession> = emptyList(),
+    labels: List<WorkoutLabel> = emptyList(),
     onItemClick: (NavKey) -> Unit
 ) {
     var showWorkoutTypeDialog by remember { mutableStateOf(false) }
+
+    val dayKeyFormat = remember { SimpleDateFormat("yyyyMMdd", Locale.getDefault()) }
+    val todayStr = remember { dayKeyFormat.format(Date()) }
+    val todayPlannedSessions = remember(plannedSessions, todayStr) {
+        plannedSessions.filter { planned ->
+            val cal = Calendar.getInstance().apply { timeInMillis = planned.dateTimestamp }
+            dayKeyFormat.format(cal.time) == todayStr
+        }
+    }
+    val labelsMap = remember(labels) { labels.associateBy { it.id } }
 
     Column(
         modifier = Modifier
@@ -345,26 +379,157 @@ fun WorkoutTabContent(
             modifier = Modifier.padding(bottom = 20.dp)
         )
 
-        // Start Workout Button
-        Button(
-            onClick = { showWorkoutTypeDialog = true },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
-            ),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
-        ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
-            Spacer(modifier = Modifier.width(6.dp))
+        // Today's Scheduled Routine Section (Renders all workouts planned for today)
+        if (todayPlannedSessions.isNotEmpty()) {
             Text(
-                "START WORKOUT",
+                text = "TODAY'S SCHEDULED ROUTINE",
                 style = LabelCaps,
-                color = Color.White
+                color = MaterialTheme.colorScheme.primary
             )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            todayPlannedSessions.forEach { planned ->
+                val labelObj = labelsMap[planned.labelId]
+                val tagColor = try {
+                    Color(android.graphics.Color.parseColor(labelObj?.colorHex))
+                } catch (e: Exception) {
+                    InfraredAccent
+                }
+
+                val workoutTypeIcon = when (planned.workoutType) {
+                    "RUN" -> Icons.AutoMirrored.Filled.DirectionsRun
+                    "HYROX" -> Icons.Default.FlashOn
+                    else -> Icons.Default.FitnessCenter
+                }
+
+                GainsCard(
+                    onClick = {
+                        val tId = planned.templateId
+                        if (tId != null && tId > 0) {
+                            onItemClick(WorkoutLogger(templateId = tId, isTemplateMode = true, isPlannedMode = true, plannedId = planned.id))
+                        } else {
+                            viewModel.startPlannedSession(planned) { sessionId ->
+                                onItemClick(WorkoutLogger(sessionId))
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Workout Type Icon Container (matching HistoryCard)
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.background),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = workoutTypeIcon,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = planned.name,
+                                        style = BodySemiBold.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (labelObj != null) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(tagColor.copy(alpha = 0.15f))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = labelObj.name.uppercase(),
+                                                style = LabelCaps.copy(fontSize = 8.sp),
+                                                color = tagColor
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Tap for details • Play to start",
+                                    style = LabelCaps.copy(fontSize = 9.sp),
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                viewModel.startPlannedSession(planned) { sessionId ->
+                                    onItemClick(WorkoutLogger(sessionId))
+                                }
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Start Workout",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            TextButton(
+                onClick = { showWorkoutTypeDialog = true },
+                modifier = Modifier.align(Alignment.Start),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "+ Start other workout",
+                    style = LabelCaps.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                )
+            }
+        } else {
+            Button(
+                onClick = { showWorkoutTypeDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    "START WORKOUT",
+                    style = LabelCaps,
+                    color = Color.White
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -429,12 +594,21 @@ fun WorkoutTabContent(
             }
         }
 
+    val allTemplates by viewModel.allTemplates.collectAsStateWithLifecycle(initialValue = emptyList())
+
     if (showWorkoutTypeDialog) {
         SelectWorkoutTypeDialog(
+            templates = allTemplates,
             onDismiss = { showWorkoutTypeDialog = false },
             onTypeSelect = { workoutType ->
                 showWorkoutTypeDialog = false
                 viewModel.startNewSession(workoutType) { sessionId ->
+                    onItemClick(WorkoutLogger(sessionId))
+                }
+            },
+            onTemplateSelect = { templateId ->
+                showWorkoutTypeDialog = false
+                viewModel.createSessionFromTemplate(templateId) { sessionId ->
                     onItemClick(WorkoutLogger(sessionId))
                 }
             }
@@ -496,119 +670,6 @@ fun ConfirmDeleteDialog(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun SelectWorkoutTypeDialog(
-    onDismiss: () -> Unit,
-    onTypeSelect: (String) -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), RoundedCornerShape(16.dp))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "SELECT WORKOUT TYPE",
-                    style = LabelCaps,
-                    color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                
-                // Gym Option
-                WorkoutTypeOptionRow(
-                    title = "Gym Workout",
-                    description = "Strength & bodybuilding tracking",
-                    icon = Icons.Default.FitnessCenter,
-                    onClick = { onTypeSelect("GYM") }
-                )
-                
-                Spacer(modifier = Modifier.height(10.dp))
-                
-                // Run Option
-                WorkoutTypeOptionRow(
-                    title = "Running Session",
-                    description = "Cardio, pace, & distance",
-                    icon = Icons.AutoMirrored.Filled.DirectionsRun,
-                    onClick = { onTypeSelect("RUN") }
-                )
-                
-                Spacer(modifier = Modifier.height(10.dp))
-                
-                // Hyrox Option
-                WorkoutTypeOptionRow(
-                    title = "Hyrox Challenge",
-                    description = "Functional fitness racing",
-                    icon = Icons.Default.FlashOn,
-                    onClick = { onTypeSelect("HYROX") }
-                )
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                TextButton(onClick = onDismiss) {
-                    Text("CANCEL", style = LabelCaps, color = MaterialTheme.colorScheme.secondary)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun WorkoutTypeOptionRow(
-    title: String,
-    description: String,
-    icon: ImageVector,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.background)
-            .clickable { onClick() }
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(InfraredAccent.copy(alpha = 0.1f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = InfraredAccent,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-        
-        Spacer(modifier = Modifier.width(12.dp))
-        
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = BodySemiBold.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Text(
-                text = description,
-                style = BodySemiBold.copy(fontSize = 11.sp),
-                color = MaterialTheme.colorScheme.secondary
-            )
         }
     }
 }
@@ -1580,3 +1641,5 @@ fun SettingsPlaceholderRow(
         )
     }
 }
+
+

@@ -185,4 +185,90 @@ interface GainsDao {
 
     @Query("DELETE FROM planned_sessions WHERE id = :id")
     suspend fun deletePlannedSessionById(id: Long)
+
+    // Workout Templates
+    @Query("""
+        SELECT t.id, t.name, t.workoutType, t.labelId, l.name AS labelName, l.colorHex AS labelColorHex,
+               t.notes, t.createdAt,
+               COUNT(DISTINCT ts.exerciseId) AS exerciseCount,
+               COUNT(ts.id) AS totalSets
+        FROM workout_templates t
+        LEFT JOIN workout_labels l ON t.labelId = l.id
+        LEFT JOIN template_sets ts ON t.id = ts.templateId
+        GROUP BY t.id
+        ORDER BY t.createdAt DESC
+    """)
+    fun getAllTemplatesWithDetails(): Flow<List<WorkoutTemplateWithDetails>>
+
+    @Query("SELECT * FROM workout_templates WHERE id = :id")
+    fun getTemplateById(id: Long): Flow<WorkoutTemplate?>
+
+    @Query("SELECT * FROM workout_templates WHERE id = :id")
+    suspend fun getTemplateByIdSync(id: Long): WorkoutTemplate?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTemplate(template: WorkoutTemplate): Long
+
+    @Update
+    suspend fun updateTemplate(template: WorkoutTemplate)
+
+    @Delete
+    suspend fun deleteTemplate(template: WorkoutTemplate)
+
+    @Query("DELETE FROM workout_templates WHERE id = :id")
+    suspend fun deleteTemplateById(id: Long)
+
+    // Template Sets
+    @Query("""
+        SELECT ts.id, ts.templateId, ts.exerciseId, e.name AS exerciseName, e.muscleGroup AS exerciseMuscleGroup,
+               ts.setNumber, ts.targetWeight, ts.targetReps
+        FROM template_sets ts
+        INNER JOIN exercises e ON ts.exerciseId = e.id
+        WHERE ts.templateId = :templateId
+        ORDER BY ts.id ASC
+    """)
+    fun getTemplateSetsForTemplate(templateId: Long): Flow<List<TemplateSetWithExercise>>
+
+    @Query("""
+        SELECT ts.id, ts.templateId, ts.exerciseId, e.name AS exerciseName, e.muscleGroup AS exerciseMuscleGroup,
+               ts.setNumber, ts.targetWeight, ts.targetReps
+        FROM template_sets ts
+        INNER JOIN exercises e ON ts.exerciseId = e.id
+        WHERE ts.templateId = :templateId
+        ORDER BY ts.id ASC
+    """)
+    suspend fun getTemplateSetsList(templateId: Long): List<TemplateSetWithExercise>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTemplateSet(templateSet: TemplateSet): Long
+
+    @Update
+    suspend fun updateTemplateSet(templateSet: TemplateSet)
+
+    @Delete
+    suspend fun deleteTemplateSet(templateSet: TemplateSet)
 }
+
+data class TemplateSetWithExercise(
+    val id: Int,
+    val templateId: Long,
+    val exerciseId: Int,
+    val exerciseName: String,
+    val exerciseMuscleGroup: String,
+    val setNumber: Int,
+    val targetWeight: Double,
+    val targetReps: Int
+)
+
+data class WorkoutTemplateWithDetails(
+    val id: Long,
+    val name: String,
+    val workoutType: String,
+    val labelId: Int?,
+    val labelName: String?,
+    val labelColorHex: String?,
+    val notes: String?,
+    val createdAt: Long,
+    val exerciseCount: Int,
+    val totalSets: Int
+)

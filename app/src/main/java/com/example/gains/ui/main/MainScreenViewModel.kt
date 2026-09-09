@@ -50,16 +50,47 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
     val allPlannedSessions: StateFlow<List<PlannedSession>> = repository.allPlannedSessions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allTemplates: StateFlow<List<com.example.gains.data.WorkoutTemplateWithDetails>> = repository.allTemplatesWithDetails
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
 
-    fun schedulePlannedSession(dateTimestamp: Long, name: String, workoutType: String, labelId: Int? = null) {
+    fun createSessionFromTemplate(templateId: Long, onCreated: (Long) -> Unit) {
+        viewModelScope.launch {
+            val sessionId = repository.createSessionFromTemplate(templateId)
+            if (sessionId > 0) {
+                onCreated(sessionId)
+            }
+        }
+    }
+
+    fun createNewTemplate(name: String, onCreated: (Long) -> Unit) {
+        viewModelScope.launch {
+            val templateId = repository.insertTemplate(
+                com.example.gains.data.WorkoutTemplate(
+                    name = name.ifBlank { "New Routine" },
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            onCreated(templateId)
+        }
+    }
+
+    fun deleteTemplate(templateId: Long) {
+        viewModelScope.launch {
+            repository.deleteTemplateById(templateId)
+        }
+    }
+
+    fun schedulePlannedSession(dateTimestamp: Long, name: String, workoutType: String, labelId: Int? = null, templateId: Long? = null) {
         viewModelScope.launch {
             val plannedSession = PlannedSession(
                 dateTimestamp = dateTimestamp,
                 name = name,
                 workoutType = workoutType,
-                labelId = labelId
+                labelId = labelId,
+                templateId = templateId
             )
             repository.insertPlannedSession(plannedSession)
         }
@@ -73,13 +104,17 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
 
     fun startPlannedSession(planned: PlannedSession, onSessionCreated: (Long) -> Unit) {
         viewModelScope.launch {
-            val session = WorkoutSession(
-                timestamp = System.currentTimeMillis(),
-                name = planned.name,
-                workoutType = planned.workoutType,
-                labelId = planned.labelId
-            )
-            val sessionId = repository.insertSession(session)
+            val sessionId = if (planned.templateId != null && planned.templateId > 0) {
+                repository.createSessionFromTemplate(planned.templateId, planned.name)
+            } else {
+                val session = WorkoutSession(
+                    timestamp = System.currentTimeMillis(),
+                    name = planned.name,
+                    workoutType = planned.workoutType,
+                    labelId = planned.labelId
+                )
+                repository.insertSession(session)
+            }
             repository.deletePlannedSessionById(planned.id)
             onSessionCreated(sessionId)
         }

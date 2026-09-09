@@ -53,7 +53,8 @@ fun SetRow(
     onToggleComplete: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
-    isReadOnly: Boolean = false
+    isReadOnly: Boolean = false,
+    isTemplateMode: Boolean = false
 ) {
     val focusManager = LocalFocusManager.current
     val rowBgColor = if (isCompleted) AccentGreenBg else Color.Transparent
@@ -161,31 +162,33 @@ fun SetRow(
             )
         }
 
-        // Complete Checkbox / Circle
-        Box(
-            modifier = Modifier
-                .weight(1.5f),
-            contentAlignment = Alignment.Center
-        ) {
-            IconButton(
-                onClick = onToggleComplete,
-                enabled = !isReadOnly,
-                modifier = Modifier.size(24.dp)
+        // Complete Checkbox / Circle (only in live/history workout mode)
+        if (!isTemplateMode) {
+            Box(
+                modifier = Modifier
+                    .weight(1.5f),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(if (isCompleted) AccentGreen else Color.Transparent)
-                        .border(
-                            width = 2.dp,
-                            color = if (isCompleted) AccentGreen else MaterialTheme.colorScheme.secondary,
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
+                IconButton(
+                    onClick = onToggleComplete,
+                    enabled = !isReadOnly,
+                    modifier = Modifier.size(24.dp)
                 ) {
-                    if (isCompleted) {
-                        Text("✓", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(if (isCompleted) AccentGreen else Color.Transparent)
+                            .border(
+                                width = 2.dp,
+                                color = if (isCompleted) AccentGreen else MaterialTheme.colorScheme.secondary,
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isCompleted) {
+                            Text("✓", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }

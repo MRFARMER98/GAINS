@@ -41,6 +41,7 @@ fun ExerciseCard(
     onDeleteSet: (Int) -> Unit,
     modifier: Modifier = Modifier,
     isReadOnly: Boolean = false,
+    isTemplateMode: Boolean = false,
     onHeaderClick: (() -> Unit)? = null
 ) {
     GainsCard(
@@ -96,7 +97,9 @@ fun ExerciseCard(
                 Text("PREVIOUS", modifier = Modifier.weight(2f), style = LabelCaps, color = MaterialTheme.colorScheme.secondary, textAlign = TextAlign.Center)
                 Text("KG", modifier = Modifier.weight(2f), style = LabelCaps, color = MaterialTheme.colorScheme.secondary, textAlign = TextAlign.Center)
                 Text("REPS", modifier = Modifier.weight(2f), style = LabelCaps, color = MaterialTheme.colorScheme.secondary, textAlign = TextAlign.Center)
-                Text("DONE", modifier = Modifier.weight(1.5f), style = LabelCaps, color = MaterialTheme.colorScheme.secondary, textAlign = TextAlign.Center)
+                if (!isTemplateMode) {
+                    Text("DONE", modifier = Modifier.weight(1.5f), style = LabelCaps, color = MaterialTheme.colorScheme.secondary, textAlign = TextAlign.Center)
+                }
                 // Spacer matching the delete button area width in SetRow to fix alignment
                 Spacer(modifier = Modifier.width(28.dp))
             }
@@ -114,7 +117,8 @@ fun ExerciseCard(
                     onRepsChange = { r -> onRepsChange(set.id, r) },
                     onToggleComplete = { onToggleComplete(set.id) },
                     onDelete = { onDeleteSet(set.id) },
-                    isReadOnly = isReadOnly
+                    isReadOnly = isReadOnly,
+                    isTemplateMode = isTemplateMode
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
