@@ -13,21 +13,32 @@ import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
     primary = InfraredAccent,
-    background = Color(0xFF121214),
-    surface = Color(0xFF1E1E24),
     onPrimary = Color.White,
+    primaryContainer = Color(0xFF3B1F17),
+    onPrimaryContainer = Color(0xFFFF9E80),
+    background = Color(0xFF121214),
     onBackground = Color.White,
+    surface = Color(0xFF1E1E24),
     onSurface = Color.White,
-    outline = Color.DarkGray
+    surfaceVariant = Color(0xFF2A2A32),
+    onSurfaceVariant = Color(0xFFE4E4E6),
+    outline = Color(0xFF3E3E48),
+    secondary = TextSecondary,
+    onSecondary = Color.White,
+    error = SystemRed
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = InfraredAccent,
     onPrimary = Color.White,
+    primaryContainer = PrimarySoftBg,
+    onPrimaryContainer = InfraredAccent,
     background = SystemBackground,
     onBackground = TextPrimary,
     surface = SurfaceColor,
     onSurface = TextPrimary,
+    surfaceVariant = SystemGrayLight,
+    onSurfaceVariant = TextPrimary,
     outline = BorderColor,
     secondary = TextSecondary,
     onSecondary = Color.White,

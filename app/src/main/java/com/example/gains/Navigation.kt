@@ -50,6 +50,16 @@ fun MainNavigation() {
             modifier = Modifier.safeDrawingPadding()
           )
         }
+        entry<MetricHistory> { key ->
+          com.example.gains.ui.main.MetricHistoryScreen(
+            metricId = key.metricId,
+            viewModel = androidx.lifecycle.viewmodel.compose.viewModel { 
+                com.example.gains.ui.main.MainScreenViewModel(app.repository) 
+            },
+            onBackClick = { backStack.removeLastOrNull() },
+            modifier = Modifier.safeDrawingPadding()
+          )
+        }
       },
   )
 }

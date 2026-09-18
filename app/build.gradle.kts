@@ -10,7 +10,7 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "com.example.gains"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -92,4 +92,7 @@ dependencies {
   // Ktor Client
   implementation(libs.ktor.client.core)
   implementation(libs.ktor.client.okhttp)
+
+  // Health Connect
+  implementation(libs.androidx.health.connect)
 }

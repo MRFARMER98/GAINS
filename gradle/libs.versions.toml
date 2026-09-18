@@ -16,8 +16,10 @@ lifecycleViewmodelNav3 = "2.10.0"
 room = "2.7.2"
 ksp = "2.3.10"
 ktor = "2.3.11"
+healthConnect = "1.1.0-alpha11"
 
 [libraries]
+androidx-health-connect = { module = "androidx.health.connect:connect-client", version.ref = "healthConnect" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "androidxComposeBom" }

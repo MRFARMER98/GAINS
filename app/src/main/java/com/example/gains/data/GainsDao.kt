@@ -105,6 +105,20 @@ interface GainsDao {
     """)
     fun getHistoryForExercise(exerciseId: Int): Flow<List<LoggedSetWithSession>>
 
+    @Query("""
+        SELECT s.* FROM logged_sets s
+        INNER JOIN workout_sessions w ON s.sessionId = w.id
+        WHERE s.exerciseId = :exerciseId AND w.endTime > 0 AND s.isCompleted = 1
+        AND s.sessionId = (
+            SELECT s2.sessionId FROM logged_sets s2
+            INNER JOIN workout_sessions w2 ON s2.sessionId = w2.id
+            WHERE s2.exerciseId = :exerciseId AND w2.endTime > 0 AND s2.isCompleted = 1
+            ORDER BY w2.timestamp DESC LIMIT 1
+        )
+        ORDER BY s.setNumber ASC
+    """)
+    suspend fun getLatestCompletedSetsForExercise(exerciseId: Int): List<LoggedSet>
+
     // Workout Sessions
     @Query("SELECT * FROM workout_sessions ORDER BY timestamp DESC")
     fun getAllSessions(): Flow<List<WorkoutSession>>
@@ -247,6 +261,65 @@ interface GainsDao {
 
     @Delete
     suspend fun deleteTemplateSet(templateSet: TemplateSet)
+
+    // Metrics
+    @Query("SELECT * FROM metric_definitions ORDER BY displayOrder ASC")
+    fun getAllMetricDefinitions(): Flow<List<MetricDefinition>>
+
+    @Query("SELECT * FROM metric_definitions WHERE id = :id")
+    suspend fun getMetricDefinitionById(id: Long): MetricDefinition?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMetricDefinition(metric: MetricDefinition): Long
+
+    @Query("UPDATE metric_definitions SET targetValue = :targetValue, targetDate = :targetDate WHERE id = :id")
+    suspend fun updateMetricGoal(id: Long, targetValue: Float?, targetDate: Long?)
+
+    @Query("UPDATE metric_definitions SET source = :source WHERE id = :id")
+    suspend fun updateMetricSource(id: Long, source: String)
+
+    @Query("""
+        SELECT md.id, md.name, md.unit, md.isSystem, md.displayOrder, md.targetValue, md.targetDate, md.source,
+               me.id AS latestEntryId, me.timestamp AS latestTimestamp, me.value AS latestValue
+        FROM metric_definitions md
+        LEFT JOIN (
+            SELECT metricId, MAX(timestamp) as maxTs FROM metric_entries GROUP BY metricId
+        ) latest ON md.id = latest.metricId
+        LEFT JOIN metric_entries me ON latest.metricId = me.metricId AND latest.maxTs = me.timestamp
+        ORDER BY md.displayOrder ASC
+    """)
+    fun getMetricsWithLatestEntries(): Flow<List<MetricWithLatestEntry>>
+
+    @Query("SELECT * FROM metric_definitions WHERE name = :name LIMIT 1")
+    suspend fun getMetricDefinitionByName(name: String): MetricDefinition?
+
+    @Query("SELECT * FROM metric_entries WHERE metricId = :metricId ORDER BY timestamp DESC")
+    fun getEntriesForMetric(metricId: Long): Flow<List<MetricEntry>>
+
+    @Query("SELECT externalId FROM metric_entries WHERE externalId IS NOT NULL")
+    suspend fun getAllMetricEntryExternalIds(): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMetricEntry(entry: MetricEntry): Long
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMetricEntries(entries: List<MetricEntry>)
+
+    @Update
+    suspend fun updateMetricEntry(entry: MetricEntry)
+
+    @Delete
+    suspend fun deleteMetricEntry(entry: MetricEntry)
+
+    // External Activities
+    @Query("SELECT * FROM external_activities ORDER BY startTime DESC")
+    fun getAllExternalActivities(): Flow<List<ExternalActivity>>
+
+    @Query("SELECT externalId FROM external_activities")
+    suspend fun getAllExternalActivityIds(): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertExternalActivities(activities: List<ExternalActivity>)
 }
 
 data class TemplateSetWithExercise(
@@ -271,4 +344,18 @@ data class WorkoutTemplateWithDetails(
     val createdAt: Long,
     val exerciseCount: Int,
     val totalSets: Int
+)
+
+data class MetricWithLatestEntry(
+    val id: Long,
+    val name: String,
+    val unit: String,
+    val isSystem: Boolean,
+    val displayOrder: Int,
+    val targetValue: Float?,
+    val targetDate: Long?,
+    val source: String = "MANUAL",
+    val latestEntryId: Long?,
+    val latestTimestamp: Long?,
+    val latestValue: Float?
 )

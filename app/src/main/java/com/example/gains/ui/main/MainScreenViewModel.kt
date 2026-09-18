@@ -56,9 +56,76 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
 
-    fun createSessionFromTemplate(templateId: Long, onCreated: (Long) -> Unit) {
+    val allMetrics: StateFlow<List<com.example.gains.data.MetricWithLatestEntry>> = repository.allMetricsWithLatest
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allExternalActivities: StateFlow<List<com.example.gains.data.ExternalActivity>> = repository.allExternalActivities
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _hcSyncState = MutableStateFlow<SyncState>(SyncState.Idle)
+    val hcSyncState: StateFlow<SyncState> = _hcSyncState.asStateFlow()
+
+    init {
         viewModelScope.launch {
-            val sessionId = repository.createSessionFromTemplate(templateId)
+            repository.ensureDefaultMetricsSeeded()
+        }
+    }
+
+    fun syncHealthConnect(context: android.content.Context) {
+        viewModelScope.launch {
+            _hcSyncState.value = SyncState.Syncing
+            val result = repository.syncHealthConnect(context)
+            if (result.isSuccess) {
+                _hcSyncState.value = SyncState.Success
+            } else {
+                _hcSyncState.value = SyncState.Error(result.exceptionOrNull()?.message ?: "Sync failed")
+            }
+        }
+    }
+
+    fun updateMetricSource(id: Long, source: String) {
+        viewModelScope.launch {
+            repository.updateMetricSource(id, source)
+        }
+    }
+
+    fun logMetric(metricId: Long, value: Float, timestamp: Long = System.currentTimeMillis()) {
+        viewModelScope.launch {
+            repository.insertMetricEntry(
+                com.example.gains.data.MetricEntry(
+                    metricId = metricId,
+                    timestamp = timestamp,
+                    value = value
+                )
+            )
+        }
+    }
+
+    fun getMetricEntriesFlow(metricId: Long): kotlinx.coroutines.flow.Flow<List<com.example.gains.data.MetricEntry>> {
+        return repository.getEntriesForMetric(metricId)
+    }
+
+    fun updateMetricGoal(id: Long, targetValue: Float?, targetDate: Long?) {
+        viewModelScope.launch {
+            repository.updateMetricGoal(id, targetValue, targetDate)
+        }
+    }
+
+    fun updateMetricEntry(entry: com.example.gains.data.MetricEntry) {
+        viewModelScope.launch {
+            repository.updateMetricEntry(entry)
+        }
+    }
+
+    fun deleteMetricEntry(entry: com.example.gains.data.MetricEntry) {
+        viewModelScope.launch {
+            repository.deleteMetricEntry(entry)
+        }
+    }
+
+    fun createSessionFromTemplate(templateId: Long, autoLoadPrevious: Boolean = true, onCreated: (Long) -> Unit) {
+        viewModelScope.launch {
+            val sessionId = repository.createSessionFromTemplate(templateId, autoLoadPrevious = autoLoadPrevious)
             if (sessionId > 0) {
                 onCreated(sessionId)
             }
@@ -102,10 +169,10 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
         }
     }
 
-    fun startPlannedSession(planned: PlannedSession, onSessionCreated: (Long) -> Unit) {
+    fun startPlannedSession(planned: PlannedSession, autoLoadPrevious: Boolean = true, onSessionCreated: (Long) -> Unit) {
         viewModelScope.launch {
             val sessionId = if (planned.templateId != null && planned.templateId > 0) {
-                repository.createSessionFromTemplate(planned.templateId, planned.name)
+                repository.createSessionFromTemplate(planned.templateId, planned.name, autoLoadPrevious = autoLoadPrevious)
             } else {
                 val session = WorkoutSession(
                     timestamp = System.currentTimeMillis(),
@@ -164,7 +231,8 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
         photoUri: String?,
         height: Double?,
         age: Int?,
-        currentWeight: Double?
+        currentWeight: Double?,
+        birthDateTimestamp: Long? = null
     ) {
         viewModelScope.launch {
             repository.updateProfile(
@@ -174,6 +242,7 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
                     photoUri = photoUri,
                     height = height,
                     age = age,
+                    birthDateTimestamp = birthDateTimestamp,
                     currentWeight = currentWeight
                 )
             )
