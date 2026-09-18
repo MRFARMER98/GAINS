@@ -19,7 +19,7 @@ fun GainsCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val cardShape = RoundedCornerShape(16.dp) // Upgraded to 16.dp rounding
+    val cardShape = RoundedCornerShape(16.dp)
     val baseModifier = modifier
         .fillMaxWidth()
         .clip(cardShape)
@@ -27,7 +27,7 @@ fun GainsCard(
             if (onClick != null) Modifier.clickable { onClick() } else Modifier
         )
         .border(
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outline), // Uses SeparatorGray (#EFEFEF)
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             cardShape
         )
 

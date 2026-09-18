@@ -22,8 +22,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
@@ -76,6 +76,8 @@ import com.example.gains.theme.AccentGreen
 import com.example.gains.theme.AccentGreenBg
 import com.example.gains.theme.SystemRed
 import com.example.gains.ui.components.AddExerciseDialog
+import com.example.gains.ui.components.ConfirmDeleteDialog
+import com.example.gains.ui.components.GainsCard
 import com.example.gains.ui.components.ExerciseCard
 import kotlinx.coroutines.delay
 
@@ -130,6 +132,7 @@ fun WorkoutLoggerScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showSaveAsTemplateDialog by remember { mutableStateOf(false) }
     var templateNameInput by remember { mutableStateOf("") }
+    var autoLoadPrevious by remember { mutableStateOf(true) }
 
     val lazyListState = rememberLazyListState()
     val isExpanded = remember {
@@ -140,7 +143,9 @@ fun WorkoutLoggerScreen(
 
     // Live session timer logic (handles both active counting and completed frozen duration)
     var elapsedTime by remember { mutableStateOf("00:00:00") }
-    LaunchedEffect(session) {
+    val timerKey = session?.id ?: 0L
+    val isSessionEnded = (session?.endTime ?: 0L) > 0L
+    LaunchedEffect(timerKey, isSessionEnded) {
         val currentSession = session
         if (currentSession != null) {
             if (currentSession.endTime > 0L) {
@@ -231,23 +236,44 @@ fun WorkoutLoggerScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(2.dp))
-                        val subtitleText = when {
-                            isPlannedMode -> "PLANNED WORKOUT"
-                            isTemplateMode -> "ROUTINE TEMPLATE"
-                            isFinished -> "TOTAL DURATION: $elapsedTime"
-                            else -> "DURATION: $elapsedTime"
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val subtitleText = when {
+                                isPlannedMode -> "PLANNED WORKOUT"
+                                isTemplateMode -> "ROUTINE TEMPLATE"
+                                isFinished -> "TOTAL DURATION: $elapsedTime"
+                                else -> "DURATION: $elapsedTime"
+                            }
+                            Text(
+                                text = subtitleText,
+                                style = LabelCaps.copy(fontSize = 9.sp),
+                                color = if (isTemplateMode || isPlannedMode) MaterialTheme.colorScheme.primary else if (isFinished) MaterialTheme.colorScheme.secondary else InfraredAccent
+                            )
+
+                            if (!isReadOnly && !isTemplateMode) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (autoLoadPrevious) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable { autoLoadPrevious = !autoLoadPrevious }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (autoLoadPrevious) "AUTO-FILL: ON" else "AUTO-FILL: OFF",
+                                        style = LabelCaps.copy(fontSize = 7.5.sp, fontWeight = FontWeight.Bold),
+                                        color = if (autoLoadPrevious) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                            }
                         }
-                        Text(
-                            text = subtitleText,
-                            style = LabelCaps.copy(fontSize = 9.sp),
-                            color = if (isTemplateMode || isPlannedMode) MaterialTheme.colorScheme.primary else if (isFinished) MaterialTheme.colorScheme.secondary else InfraredAccent
-                        )
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -257,7 +283,7 @@ fun WorkoutLoggerScreen(
                     if (isTemplateMode) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = {
-                                viewModel.startSessionFromTemplate { newSessionId ->
+                                viewModel.startSessionFromTemplate(autoLoadPrevious = autoLoadPrevious) { newSessionId ->
                                     onItemClick?.invoke(com.example.gains.WorkoutLogger(sessionId = newSessionId))
                                 }
                             }) {
@@ -491,7 +517,7 @@ fun WorkoutLoggerScreen(
                 exercises = exercises,
                 onDismiss = { showAddExerciseDialog = false },
                 onExerciseSelect = { exercise ->
-                    viewModel.addSet(exercise.id)
+                    viewModel.addSet(exercise.id, autoLoadPrevious)
                     showAddExerciseDialog = false
                 }
             )
@@ -695,64 +721,6 @@ fun SelectSessionLabelDialog(
                     modifier = Modifier.align(Alignment.End)
                 ) {
                     Text("CANCEL", style = LabelCaps, color = MaterialTheme.colorScheme.secondary)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ConfirmDeleteDialog(
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), RoundedCornerShape(16.dp))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "DELETE WORKOUT?",
-                    style = LabelCaps,
-                    color = SystemRed,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-                Text(
-                    text = "Are you sure you want to permanently delete this workout session? All logged sets will be removed.",
-                    style = BodySemiBold.copy(fontSize = 13.sp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 20.dp)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("CANCEL", style = LabelCaps, color = MaterialTheme.colorScheme.secondary)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = onConfirm,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = SystemRed,
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
-                    ) {
-                        Text("DELETE", style = LabelCaps, color = Color.White)
-                    }
                 }
             }
         }

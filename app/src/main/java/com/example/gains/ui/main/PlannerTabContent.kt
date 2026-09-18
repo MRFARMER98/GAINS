@@ -369,12 +369,12 @@ fun PlannerTabContent(
                 }
 
                 // Day rows
-                items(dayRows) { rowDays ->
+                items(dayRows, key = { row -> row.firstOrNull()?.date?.time ?: 0L }) { rowDays ->
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         rowDays.forEach { cell ->
                             val isSelected = dayKeyFormat.format(cell.date) == selectedDateStr
                             val cellBg = when {
-                                isSelected      -> PrimarySoftBg
+                                isSelected      -> MaterialTheme.colorScheme.primaryContainer
                                 cell.isPast     -> MaterialTheme.colorScheme.background.copy(alpha = 0.5f)
                                 else            -> MaterialTheme.colorScheme.surface
                             }
@@ -425,7 +425,7 @@ fun PlannerTabContent(
 
             // ── WEEK VIEW ─────────────────────────────────────────────────────────
             if (viewMode == PlannerViewMode.WEEK) {
-                items(weekDays) { cell ->
+                items(weekDays, key = { it.date.time }) { cell ->
                     val isSelected = dayKeyFormat.format(cell.date) == selectedDateStr
                     val borderColor = when {
                         isSelected -> MaterialTheme.colorScheme.primary
@@ -517,14 +517,14 @@ fun PlannerTabContent(
                     // ← The one and only "+ PLAN WORKOUT" button
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { showPlanDialog = true }
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Add, "Plan", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                        Icon(Icons.Default.Add, "Plan", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("PLAN WORKOUT", style = LabelCaps.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.primary)
+                        Text("PLAN WORKOUT", style = LabelCaps.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }

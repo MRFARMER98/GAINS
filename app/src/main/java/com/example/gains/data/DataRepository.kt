@@ -6,6 +6,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 
 interface DataRepository {
     val allExercises: Flow<List<Exercise>>
@@ -43,6 +44,7 @@ interface DataRepository {
     // Exercise Details & History
     fun getExerciseById(exerciseId: Int): Flow<Exercise?>
     fun getHistoryForExercise(exerciseId: Int): Flow<List<LoggedSetWithSession>>
+    suspend fun getLatestCompletedSetsForExercise(exerciseId: Int): List<LoggedSet>
     suspend fun updateExerciseNotes(exerciseId: Int, notes: String?)
 
     // Templates
@@ -55,8 +57,22 @@ interface DataRepository {
     suspend fun insertTemplateSet(templateSet: TemplateSet): Long
     suspend fun updateTemplateSet(templateSet: TemplateSet)
     suspend fun deleteTemplateSet(templateSet: TemplateSet)
-    suspend fun createSessionFromTemplate(templateId: Long, name: String? = null): Long
+    suspend fun createSessionFromTemplate(templateId: Long, name: String? = null, autoLoadPrevious: Boolean = false): Long
     suspend fun createTemplateFromSession(sessionId: Long, templateName: String): Long
+
+    // Metrics
+    val allMetricsWithLatest: Flow<List<MetricWithLatestEntry>>
+    fun getEntriesForMetric(metricId: Long): Flow<List<MetricEntry>>
+    suspend fun insertMetricEntry(entry: MetricEntry): Long
+    suspend fun updateMetricEntry(entry: MetricEntry)
+    suspend fun deleteMetricEntry(entry: MetricEntry)
+    suspend fun updateMetricGoal(id: Long, targetValue: Float?, targetDate: Long?)
+    suspend fun updateMetricSource(id: Long, source: String)
+    suspend fun ensureDefaultMetricsSeeded()
+
+    // External Activities & Health Connect
+    val allExternalActivities: Flow<List<ExternalActivity>>
+    suspend fun syncHealthConnect(context: android.content.Context): Result<Int>
 }
 
 class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
@@ -162,13 +178,16 @@ class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
     override suspend fun insertTemplateSet(templateSet: TemplateSet): Long =
         gainsDao.insertTemplateSet(templateSet)
 
+    override suspend fun getLatestCompletedSetsForExercise(exerciseId: Int): List<LoggedSet> =
+        gainsDao.getLatestCompletedSetsForExercise(exerciseId)
+
     override suspend fun updateTemplateSet(templateSet: TemplateSet) =
         gainsDao.updateTemplateSet(templateSet)
 
     override suspend fun deleteTemplateSet(templateSet: TemplateSet) =
         gainsDao.deleteTemplateSet(templateSet)
 
-    override suspend fun createSessionFromTemplate(templateId: Long, name: String?): Long {
+    override suspend fun createSessionFromTemplate(templateId: Long, name: String?, autoLoadPrevious: Boolean): Long {
         val template = gainsDao.getTemplateByIdSync(templateId) ?: return 0L
         val sessionName = name ?: template.name
         val newSession = WorkoutSession(
@@ -179,17 +198,52 @@ class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
         )
         val sessionId = gainsDao.insertSession(newSession)
         val templateSets = gainsDao.getTemplateSetsList(templateId)
-        templateSets.forEach { ts ->
-            gainsDao.insertLoggedSet(
-                LoggedSet(
-                    sessionId = sessionId,
-                    exerciseId = ts.exerciseId,
-                    setNumber = ts.setNumber,
-                    weight = ts.targetWeight,
-                    reps = ts.targetReps,
-                    isCompleted = false
+
+        if (autoLoadPrevious) {
+            val exerciseGrouped = templateSets.groupBy { it.exerciseId }
+            exerciseGrouped.forEach { (exId, tSets) ->
+                val prevSets = gainsDao.getLatestCompletedSetsForExercise(exId)
+                if (prevSets.isNotEmpty()) {
+                    prevSets.forEachIndexed { index, ps ->
+                        gainsDao.insertLoggedSet(
+                            LoggedSet(
+                                sessionId = sessionId,
+                                exerciseId = exId,
+                                setNumber = index + 1,
+                                weight = ps.weight,
+                                reps = ps.reps,
+                                isCompleted = false
+                            )
+                        )
+                    }
+                } else {
+                    tSets.forEach { ts ->
+                        gainsDao.insertLoggedSet(
+                            LoggedSet(
+                                sessionId = sessionId,
+                                exerciseId = ts.exerciseId,
+                                setNumber = ts.setNumber,
+                                weight = ts.targetWeight,
+                                reps = ts.targetReps,
+                                isCompleted = false
+                            )
+                        )
+                    }
+                }
+            }
+        } else {
+            templateSets.forEach { ts ->
+                gainsDao.insertLoggedSet(
+                    LoggedSet(
+                        sessionId = sessionId,
+                        exerciseId = ts.exerciseId,
+                        setNumber = ts.setNumber,
+                        weight = ts.targetWeight,
+                        reps = ts.targetReps,
+                        isCompleted = false
+                    )
                 )
-            )
+            }
         }
         return sessionId
     }
@@ -202,5 +256,44 @@ class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
         )
         val templateId = gainsDao.insertTemplate(newTemplate)
         return templateId
+    }
+
+    override val allMetricsWithLatest: Flow<List<MetricWithLatestEntry>> =
+        gainsDao.getMetricsWithLatestEntries()
+
+    override fun getEntriesForMetric(metricId: Long): Flow<List<MetricEntry>> =
+        gainsDao.getEntriesForMetric(metricId)
+
+    override suspend fun insertMetricEntry(entry: MetricEntry): Long =
+        gainsDao.insertMetricEntry(entry)
+
+    override suspend fun updateMetricEntry(entry: MetricEntry) =
+        gainsDao.updateMetricEntry(entry)
+
+    override suspend fun deleteMetricEntry(entry: MetricEntry) =
+        gainsDao.deleteMetricEntry(entry)
+
+    override suspend fun updateMetricGoal(id: Long, targetValue: Float?, targetDate: Long?) =
+        gainsDao.updateMetricGoal(id, targetValue, targetDate)
+
+    override suspend fun updateMetricSource(id: Long, source: String) =
+        gainsDao.updateMetricSource(id, source)
+
+    override suspend fun ensureDefaultMetricsSeeded() {
+        val all = gainsDao.getAllMetricDefinitions().firstOrNull() ?: emptyList()
+        if (all.isEmpty()) {
+            val country = java.util.Locale.getDefault().country
+            val unit = if (country == "US" || country == "LR" || country == "MM") "lbs" else "kg"
+            gainsDao.insertMetricDefinition(
+                MetricDefinition(name = "Body Weight", unit = unit, isSystem = true, displayOrder = 1)
+            )
+        }
+    }
+
+    override val allExternalActivities: Flow<List<ExternalActivity>> =
+        gainsDao.getAllExternalActivities()
+
+    override suspend fun syncHealthConnect(context: android.content.Context): Result<Int> {
+        return com.example.gains.data.health.HealthConnectManager.syncData(context, gainsDao)
     }
 }

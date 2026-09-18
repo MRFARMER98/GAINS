@@ -96,10 +96,10 @@ class WorkoutLoggerViewModel(
         }
     }
 
-    fun startSessionFromTemplate(onSessionCreated: (Long) -> Unit) {
+    fun startSessionFromTemplate(autoLoadPrevious: Boolean = false, onSessionCreated: (Long) -> Unit) {
         viewModelScope.launch {
             if (templateId > 0) {
-                val newSessionId = repository.createSessionFromTemplate(templateId)
+                val newSessionId = repository.createSessionFromTemplate(templateId, autoLoadPrevious = autoLoadPrevious)
                 if (newSessionId > 0) {
                     if (plannedId > 0) {
                         repository.deletePlannedSessionById(plannedId)
@@ -142,7 +142,7 @@ class WorkoutLoggerViewModel(
         }
     }
 
-    fun addSet(exerciseId: Int) {
+    fun addSet(exerciseId: Int, autoLoadPrevious: Boolean = false) {
         viewModelScope.launch {
             if (isTemplateMode) {
                 if (templateId > 0) {
@@ -164,6 +164,25 @@ class WorkoutLoggerViewModel(
                 }
             } else {
                 val currentSetsForExercise = loggedSets.value.filter { it.exerciseId == exerciseId }
+                if (currentSetsForExercise.isEmpty() && autoLoadPrevious) {
+                    val prevSets = repository.getLatestCompletedSetsForExercise(exerciseId)
+                    if (prevSets.isNotEmpty()) {
+                        prevSets.forEachIndexed { index, ps ->
+                            repository.insertLoggedSet(
+                                LoggedSet(
+                                    sessionId = sessionId,
+                                    exerciseId = exerciseId,
+                                    setNumber = index + 1,
+                                    weight = ps.weight,
+                                    reps = ps.reps,
+                                    isCompleted = false
+                                )
+                            )
+                        }
+                        return@launch
+                    }
+                }
+
                 val nextSetNumber = currentSetsForExercise.size + 1
                 val lastSet = currentSetsForExercise.lastOrNull()
                 

@@ -172,11 +172,11 @@ fun SetRow(
                 IconButton(
                     onClick = onToggleComplete,
                     enabled = !isReadOnly,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(20.dp)
+                            .size(22.dp)
                             .clip(CircleShape)
                             .background(if (isCompleted) AccentGreen else Color.Transparent)
                             .border(
@@ -198,20 +198,18 @@ fun SetRow(
         if (!isReadOnly) {
             IconButton(
                 onClick = onDelete,
-                modifier = Modifier
-                    .size(28.dp)
-                    .padding(end = 4.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Delete Set",
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
         } else {
             // Spacer to keep layout balanced when delete is hidden
-            Spacer(modifier = Modifier.width(28.dp))
+            Spacer(modifier = Modifier.width(48.dp))
         }
     }
 }

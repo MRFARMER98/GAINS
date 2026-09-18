@@ -10,7 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [Exercise::class, WorkoutSession::class, LoggedSet::class, WorkoutLabel::class, UserProfile::class, PlannedSession::class, WorkoutTemplate::class, TemplateSet::class], version = 10, exportSchema = false)
+@Database(entities = [Exercise::class, WorkoutSession::class, LoggedSet::class, WorkoutLabel::class, UserProfile::class, PlannedSession::class, WorkoutTemplate::class, TemplateSet::class, MetricDefinition::class, MetricEntry::class, ExternalActivity::class], version = 14, exportSchema = false)
 abstract class GainsDatabase : RoomDatabase() {
     abstract fun gainsDao(): GainsDao
 
@@ -119,6 +119,78 @@ abstract class GainsDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `metric_definitions` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `unit` TEXT NOT NULL,
+                        `isSystem` INTEGER NOT NULL,
+                        `displayOrder` INTEGER NOT NULL
+                    )
+                """)
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `metric_entries` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `metricId` INTEGER NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `value` REAL NOT NULL,
+                        FOREIGN KEY(`metricId`) REFERENCES `metric_definitions`(`id`) ON DELETE CASCADE
+                    )
+                """)
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_metric_entries_metricId` ON `metric_entries` (`metricId`)")
+            }
+        }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `metric_definitions` ADD COLUMN `targetValue` REAL DEFAULT NULL")
+                db.execSQL("ALTER TABLE `metric_definitions` ADD COLUMN `targetDate` INTEGER DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `external_activities` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `externalId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `activityType` TEXT NOT NULL,
+                        `startTime` INTEGER NOT NULL,
+                        `endTime` INTEGER NOT NULL,
+                        `durationSeconds` INTEGER NOT NULL,
+                        `distanceMeters` REAL,
+                        `caloriesKcal` REAL,
+                        `sourceApp` TEXT
+                    )
+                """)
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_external_activities_externalId` ON `external_activities` (`externalId`)")
+                db.execSQL("ALTER TABLE `metric_definitions` ADD COLUMN `source` TEXT NOT NULL DEFAULT 'MANUAL'")
+                db.execSQL("ALTER TABLE `metric_entries` ADD COLUMN `externalId` TEXT DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `user_profile` ADD COLUMN `birthDateTimestamp` INTEGER DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                try { db.execSQL("ALTER TABLE `workout_sessions` ADD COLUMN `workoutType` TEXT NOT NULL DEFAULT 'GYM'") } catch (e: Exception) {}
+                try { db.execSQL("ALTER TABLE `workout_sessions` ADD COLUMN `endTime` INTEGER NOT NULL DEFAULT 0") } catch (e: Exception) {}
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                try { db.execSQL("ALTER TABLE `logged_sets` ADD COLUMN `isCompleted` INTEGER NOT NULL DEFAULT 0") } catch (e: Exception) {}
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): GainsDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -127,8 +199,8 @@ abstract class GainsDatabase : RoomDatabase() {
                     "gains_database"
                 )
                 .addCallback(GainsDatabaseCallback())
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
-                .fallbackToDestructiveMigration(true)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                .fallbackToDestructiveMigrationOnDowngrade(true)
                 .build()
                 INSTANCE = instance
                 instance
@@ -136,10 +208,10 @@ abstract class GainsDatabase : RoomDatabase() {
         }
     }
 
+
     private class GainsDatabaseCallback : RoomDatabase.Callback() {
         override fun onCreate(db: SupportSQLiteDatabase) {
             super.onCreate(db)
-            // Empty callback so new installations rely fully on user syncing exercises
         }
     }
 }

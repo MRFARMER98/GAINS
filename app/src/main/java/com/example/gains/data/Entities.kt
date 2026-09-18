@@ -68,8 +68,22 @@ data class UserProfile(
     val photoUri: String? = null,
     val height: Double? = null,
     val age: Int? = null,
+    val birthDateTimestamp: Long? = null,
     val currentWeight: Double? = null
-)
+) {
+    val calculatedAge: Int?
+        get() {
+            val dob = birthDateTimestamp ?: return age
+            if (dob <= 0L) return age
+            val dobCal = java.util.Calendar.getInstance().apply { timeInMillis = dob }
+            val nowCal = java.util.Calendar.getInstance()
+            var years = nowCal.get(java.util.Calendar.YEAR) - dobCal.get(java.util.Calendar.YEAR)
+            if (nowCal.get(java.util.Calendar.DAY_OF_YEAR) < dobCal.get(java.util.Calendar.DAY_OF_YEAR)) {
+                years--
+            }
+            return years.coerceAtLeast(0)
+        }
+}
 
 @Entity(tableName = "planned_sessions")
 data class PlannedSession(
@@ -120,4 +134,57 @@ data class TemplateSet(
     val setNumber: Int,
     val targetWeight: Double,
     val targetReps: Int
+)
+
+@Entity(tableName = "metric_definitions")
+data class MetricDefinition(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val unit: String,
+    val isSystem: Boolean,
+    val displayOrder: Int,
+    val targetValue: Float? = null,
+    val targetDate: Long? = null,
+    val source: String = "MANUAL"
+)
+
+@Entity(
+    tableName = "metric_entries",
+    foreignKeys = [
+        ForeignKey(
+            entity = MetricDefinition::class,
+            parentColumns = ["id"],
+            childColumns = ["metricId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index(value = ["metricId"])
+    ]
+)
+data class MetricEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val metricId: Long,
+    val timestamp: Long,
+    val value: Float,
+    val externalId: String? = null
+)
+
+@Entity(
+    tableName = "external_activities",
+    indices = [
+        Index(value = ["externalId"], unique = true)
+    ]
+)
+data class ExternalActivity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val externalId: String,
+    val title: String,
+    val activityType: String,
+    val startTime: Long,
+    val endTime: Long,
+    val durationSeconds: Long,
+    val distanceMeters: Double? = null,
+    val caloriesKcal: Double? = null,
+    val sourceApp: String? = null
 )
