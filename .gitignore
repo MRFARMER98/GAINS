@@ -15,3 +15,8 @@
 local.properties
 .kotlin/
 .agents/
+scratch/
+__pycache__/
+*.pyc
+*.db
+!app/src/main/assets/databases/*.db

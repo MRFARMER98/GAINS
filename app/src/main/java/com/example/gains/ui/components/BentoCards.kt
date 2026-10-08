@@ -20,7 +20,9 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Speed
+import com.example.gains.domain.NutritionTargets
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
@@ -81,6 +83,7 @@ fun ProfileSummaryCard(
     heightCm: Double?,
     currentWeight: Double?,
     weightUnit: String = "kg",
+    biologicalSex: String? = null,
     onEditProfileClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -186,7 +189,7 @@ fun ProfileSummaryCard(
                                     .background(Color(0xFF10B981))
                             )
                             Text(
-                                text = "ATHLETE PROFILE",
+                                text = if (!biologicalSex.isNullOrBlank()) "ATHLETE PROFILE · ${biologicalSex.uppercase()}" else "ATHLETE PROFILE",
                                 style = LabelCaps.copy(fontSize = 9.sp, letterSpacing = 1.2.sp),
                                 color = MaterialTheme.colorScheme.secondary
                             )
@@ -683,7 +686,9 @@ fun GoalsHubCard(
     weightCurrent: Float?,
     weightTarget: Float?,
     weightUnit: String = "kg",
+    nutritionTargets: NutritionTargets? = null,
     onSetGoalClick: () -> Unit,
+    onNutritionGoalClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     GainsCard(modifier = modifier.fillMaxWidth()) {
@@ -788,6 +793,51 @@ fun GoalsHubCard(
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Goal 3: Daily Nutrition Target
+            if (nutritionTargets != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.background)
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                        .clickable { onNutritionGoalClick?.invoke() }
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Restaurant,
+                            contentDescription = null,
+                            tint = InfraredAccent,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "Daily Nutrition Target",
+                                style = BodySemiBold.copy(fontSize = 13.sp),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "${nutritionTargets.caloriesKcal} kcal · ${nutritionTargets.proteinG.toInt()}P · ${nutritionTargets.carbsG.toInt()}C · ${nutritionTargets.fatG.toInt()}F",
+                                style = LabelCaps.copy(fontSize = 9.5.sp),
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                    Text(
+                        text = nutritionTargets.goalType.label.split(" ")[0].uppercase(),
+                        style = LabelCaps.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                        color = InfraredAccent
                     )
                 }
             }

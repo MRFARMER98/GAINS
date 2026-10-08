@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
@@ -42,7 +43,9 @@ import com.example.gains.ui.components.BentoMetricCard
 import com.example.gains.ui.components.GainsCard
 import com.example.gains.ui.components.GoalsHubCard
 import com.example.gains.ui.components.ProfileSummaryCard
+import com.example.gains.ui.components.EditProfileDialog
 import com.example.gains.ui.components.LogMetricDialog
+import com.example.gains.ui.components.NutritionGoalDialog
 import com.example.gains.ui.components.SetGoalDialog
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -74,6 +77,11 @@ fun YouTabContent(
     val currentHeight = profile?.height
     val currentAge = profile?.age
     val currentWeight = profile?.currentWeight
+
+    val targets by viewModel.nutritionTargets.collectAsState()
+    val weeklyCalibration by viewModel.weeklyCalibrationState.collectAsState()
+    var showNutritionGoalDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
 
     var showGoalDialog by remember { mutableStateOf<MetricWithLatestEntry?>(null) }
     var metricToLog by remember { mutableStateOf<MetricWithLatestEntry?>(null) }
@@ -145,7 +153,9 @@ fun YouTabContent(
                 age = currentAge,
                 heightCm = currentHeight,
                 currentWeight = currentWeight ?: weightMetric?.latestValue?.toDouble(),
-                weightUnit = weightMetric?.unit ?: "kg"
+                weightUnit = weightMetric?.unit ?: "kg",
+                biologicalSex = profile?.biologicalSex,
+                onEditProfileClick = { showEditProfileDialog = true }
             )
         }
 
@@ -240,12 +250,90 @@ fun YouTabContent(
                 weightCurrent = weightMetric?.latestValue,
                 weightTarget = weightMetric?.targetValue,
                 weightUnit = weightMetric?.unit ?: "kg",
+                nutritionTargets = targets,
                 onSetGoalClick = {
                     if (weightMetric != null) {
                         showGoalDialog = weightMetric
                     }
+                },
+                onNutritionGoalClick = {
+                    showNutritionGoalDialog = true
                 }
             )
+        }
+
+        // Smart Weekly Calibration Card
+        weeklyCalibration?.let { calibration ->
+            item {
+                GainsCard(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Science,
+                                contentDescription = null,
+                                tint = InfraredAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "WEEKLY NUTRITION CALIBRATION",
+                                style = LabelCaps.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                color = InfraredAccent
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = calibration.message,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                onClick = { viewModel.dismissCalibration() }
+                            ) {
+                                Text(
+                                    text = "DISMISS",
+                                    style = LabelCaps.copy(fontSize = 11.sp),
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { viewModel.applyCalibrationAdjustment(calibration.recommendedCalorieAdjustment) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = InfraredAccent,
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                val sign = if (calibration.recommendedCalorieAdjustment > 0) "+" else ""
+                                Text(
+                                    text = "APPLY $sign${calibration.recommendedCalorieAdjustment} KCAL",
+                                    style = LabelCaps.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -271,6 +359,29 @@ fun YouTabContent(
             onSave = { targetValue ->
                 viewModel.updateMetricGoal(showGoalDialog!!.id, targetValue, null)
                 showGoalDialog = null
+            }
+        )
+    }
+
+    if (showNutritionGoalDialog) {
+        NutritionGoalDialog(
+            userProfile = profile,
+            onSavePlan = { activity, mode, alloc, split, preset, goal, rate, date, cCal, cProt, cCarb, cFat, cFib ->
+                viewModel.updateNutritionPlan(
+                    activity, mode, alloc, split, preset, goal, rate, date, cCal, cProt, cCarb, cFat, cFib
+                )
+            },
+            onDismiss = { showNutritionGoalDialog = false }
+        )
+    }
+
+    if (showEditProfileDialog) {
+        EditProfileDialog(
+            profile = profile,
+            onDismiss = { showEditProfileDialog = false },
+            onSaveClick = { newName, photo, h, a, w, dob, sex ->
+                viewModel.saveProfile(newName, photo, h, a, w, dob, sex)
+                showEditProfileDialog = false
             }
         )
     }

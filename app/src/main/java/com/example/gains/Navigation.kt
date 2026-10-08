@@ -60,6 +60,16 @@ fun MainNavigation() {
             modifier = Modifier.safeDrawingPadding()
           )
         }
+        entry<ExternalRunDetail> { key ->
+          com.example.gains.ui.main.ExternalRunDetailScreen(
+            activityId = key.activityId,
+            viewModel = androidx.lifecycle.viewmodel.compose.viewModel { 
+                com.example.gains.ui.main.MainScreenViewModel(app.repository) 
+            },
+            onBackClick = { backStack.removeLastOrNull() },
+            modifier = Modifier.safeDrawingPadding()
+          )
+        }
       },
   )
 }

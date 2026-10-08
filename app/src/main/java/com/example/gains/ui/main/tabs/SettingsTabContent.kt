@@ -1,6 +1,7 @@
 package com.example.gains.ui.main.tabs
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -71,15 +72,16 @@ fun SettingsTabContent(
 
         // Health Connect Section
         val context = LocalContext.current
+        val scope = rememberCoroutineScope()
         val hcAvailable = remember { HealthConnectManager.isAvailable(context) }
         var hcGranted by remember { mutableStateOf(false) }
         val hcSyncState by viewModel.hcSyncState.collectAsStateWithLifecycle()
 
         val hcPermissionLauncher = rememberLauncherForActivityResult(
             androidx.health.connect.client.PermissionController.createRequestPermissionResultContract()
-        ) { granted ->
-            hcGranted = granted.containsAll(HealthConnectManager.REQUIRED_PERMISSIONS)
-            if (hcGranted) {
+        ) { _ ->
+            scope.launch {
+                hcGranted = HealthConnectManager.hasPermissions(context)
                 viewModel.syncHealthConnect(context)
             }
         }
@@ -87,9 +89,7 @@ fun SettingsTabContent(
         LaunchedEffect(Unit) {
             if (hcAvailable) {
                 hcGranted = HealthConnectManager.hasPermissions(context)
-                if (hcGranted) {
-                    viewModel.syncHealthConnect(context)
-                }
+                viewModel.syncHealthConnect(context)
             }
         }
 
@@ -237,34 +237,105 @@ fun SettingsTabContent(
                     }
 
                     if (hcAvailable) {
-                        if (hcGranted) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (!hcGranted) {
+                                Button(
+                                    onClick = {
+                                        hcPermissionLauncher.launch(HealthConnectManager.REQUIRED_PERMISSIONS)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "CONNECT",
+                                        style = LabelCaps.copy(fontSize = 10.sp),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
                             Button(
-                                onClick = { viewModel.syncHealthConnect(context) },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                onClick = {
+                                    if (!hcGranted) {
+                                        hcPermissionLauncher.launch(HealthConnectManager.REQUIRED_PERMISSIONS)
+                                    }
+                                    viewModel.syncHealthConnect(context)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
                                 Text(
                                     text = if (hcSyncState is SyncState.Syncing) "SYNCING..." else "SYNC NOW",
                                     style = LabelCaps.copy(fontSize = 10.sp),
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        } else {
-                            Button(
-                                onClick = {
-                                    hcPermissionLauncher.launch(HealthConnectManager.REQUIRED_PERMISSIONS)
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    text = "CONNECT",
-                                    style = LabelCaps.copy(fontSize = 10.sp),
                                     color = Color.White
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Health Connect Data Sources Customization
+        val disabledSourceApps by settingsManager.disabledSourceApps.collectAsStateWithLifecycle(initialValue = emptySet())
+        val externalActivities by viewModel.allExternalActivities.collectAsStateWithLifecycle(initialValue = emptyList())
+        val detectedSources = remember(externalActivities) {
+            externalActivities.mapNotNull { it.sourceApp?.ifBlank { null } }.toSet().sorted()
+        }
+
+        if (detectedSources.isNotEmpty()) {
+            Text(
+                text = "HEALTH CONNECT DATA SOURCES",
+                style = LabelCaps,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            GainsCard(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Enabled Activity Sources",
+                        style = BodySemiBold.copy(fontSize = 15.sp),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Toggle which apps display workouts on your history timeline",
+                        style = LabelCaps.copy(fontSize = 10.sp),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    detectedSources.forEachIndexed { idx, sourceName ->
+                        val isEnabled = !disabledSourceApps.contains(sourceName)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = sourceName,
+                                style = BodySemiBold.copy(fontSize = 14.sp),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Switch(
+                                checked = isEnabled,
+                                onCheckedChange = { checked ->
+                                    settingsManager.toggleSourceAppVisibility(sourceName, checked)
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                    uncheckedThumbColor = MaterialTheme.colorScheme.secondary,
+                                    uncheckedTrackColor = MaterialTheme.colorScheme.surface
+                                )
+                            )
+                        }
+                        if (idx < detectedSources.size - 1) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), thickness = 0.5.dp)
                         }
                     }
                 }
@@ -516,8 +587,8 @@ fun SettingsTabContent(
         EditProfileDialog(
             profile = profile,
             onDismiss = { showEditProfileDialog = false },
-            onSaveClick = { newName, photo, h, a, w, dob ->
-                viewModel.saveProfile(newName, photo, h, a, w, dob)
+            onSaveClick = { newName, photo, h, a, w, dob, sex ->
+                viewModel.saveProfile(newName, photo, h, a, w, dob, sex)
                 showEditProfileDialog = false
             }
         )

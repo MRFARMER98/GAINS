@@ -17,6 +17,9 @@ class SettingsManager(context: Context) {
     private val _autoLoadPreviousPerformance = MutableStateFlow(getSavedAutoLoadPreviousPerformance())
     val autoLoadPreviousPerformance: StateFlow<Boolean> = _autoLoadPreviousPerformance.asStateFlow()
 
+    private val _disabledSourceApps = MutableStateFlow(getSavedDisabledSourceApps())
+    val disabledSourceApps: StateFlow<Set<String>> = _disabledSourceApps.asStateFlow()
+
     fun getSavedThemeMode(): String {
         return sharedPreferences.getString("theme_mode", "SYSTEM") ?: "SYSTEM"
     }
@@ -48,5 +51,20 @@ class SettingsManager(context: Context) {
     fun setAutoLoadPreviousPerformance(enabled: Boolean) {
         sharedPreferences.edit().putBoolean("auto_load_previous_performance", enabled).apply()
         _autoLoadPreviousPerformance.value = enabled
+    }
+
+    fun getSavedDisabledSourceApps(): Set<String> {
+        return sharedPreferences.getStringSet("disabled_source_apps", emptySet()) ?: emptySet()
+    }
+
+    fun toggleSourceAppVisibility(appName: String, isVisible: Boolean) {
+        val current = getSavedDisabledSourceApps().toMutableSet()
+        if (isVisible) {
+            current.remove(appName)
+        } else {
+            current.add(appName)
+        }
+        sharedPreferences.edit().putStringSet("disabled_source_apps", current).apply()
+        _disabledSourceApps.value = current
     }
 }

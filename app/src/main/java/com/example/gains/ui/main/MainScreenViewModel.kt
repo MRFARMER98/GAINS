@@ -2,22 +2,42 @@ package com.example.gains.ui.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.gains.data.DailyNutrientSummary
 import com.example.gains.data.DataRepository
 import com.example.gains.data.ExerciseWithSummary
+import com.example.gains.data.FoodItem
+import com.example.gains.data.FoodNutrient
+import com.example.gains.data.FoodServing
+import com.example.gains.data.LoggedFoodEntry
 import com.example.gains.data.PlannedSession
 import com.example.gains.data.UserProfile
 import com.example.gains.data.WorkoutLabel
 import com.example.gains.data.WorkoutSession
 import com.example.gains.data.WorkoutSessionWithLabel
+import com.example.gains.domain.ActiveCalorieMacroSplit
+import com.example.gains.domain.ActivityAllocationStrategy
+import com.example.gains.domain.ActivityLevel
+import com.example.gains.domain.BiologicalSex
+import com.example.gains.domain.CalibrationCheckInState
+import com.example.gains.domain.MacroPreset
+import com.example.gains.domain.NutritionCalculator
+import com.example.gains.domain.NutritionEngineMode
+import com.example.gains.domain.NutritionGoalType
+import com.example.gains.domain.NutritionTargets
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,6 +88,7 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
     init {
         viewModelScope.launch {
             repository.ensureDefaultMetricsSeeded()
+            repository.ensureDefaultFoodsSeeded()
         }
     }
 
@@ -232,21 +253,357 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
         height: Double?,
         age: Int?,
         currentWeight: Double?,
-        birthDateTimestamp: Long? = null
+        birthDateTimestamp: Long? = null,
+        biologicalSex: String = "MALE"
     ) {
         viewModelScope.launch {
+            val current = repository.userProfile.firstOrNull() ?: UserProfile()
             repository.updateProfile(
-                UserProfile(
+                current.copy(
                     id = 1,
                     name = name,
                     photoUri = photoUri,
                     height = height,
                     age = age,
                     birthDateTimestamp = birthDateTimestamp,
-                    currentWeight = currentWeight
+                    currentWeight = currentWeight,
+                    biologicalSex = biologicalSex
                 )
             )
         }
+    }
+
+    // Food Tracker State Management
+    private val _selectedFoodDateTimestamp = MutableStateFlow(getStartOfDayTimestamp(System.currentTimeMillis()))
+    val selectedFoodDateTimestamp: StateFlow<Long> = _selectedFoodDateTimestamp.asStateFlow()
+
+    val dailyActiveCaloriesBurned: StateFlow<Float> = combine(
+        _selectedFoodDateTimestamp,
+        repository.allSessionsWithLabels,
+        repository.allExternalActivities,
+        repository.userProfile
+    ) { selectedDate, sessions, externals, profile ->
+        val endOfDay = selectedDate + (24L * 60 * 60 * 1000L) - 1L
+        val weight = profile?.currentWeight ?: 78.0
+
+        // 1. GAINS Workouts
+        val sessionBurn = sessions
+            .filter { it.timestamp in selectedDate..endOfDay }
+            .sumOf { s ->
+                val durationMins = if (s.endTime > s.timestamp) {
+                    ((s.endTime - s.timestamp) / 60000L).coerceIn(15L, 180L).toInt()
+                } else {
+                    45
+                }
+                NutritionCalculator.calculateGymSessionBurnKcal(durationMins, weight).toDouble()
+            }
+
+        // 2. Health Connect External Activities (discounted by 20% conservative factor)
+        val externalBurn = externals
+            .filter { it.startTime in selectedDate..endOfDay }
+            .sumOf { act ->
+                val base = act.caloriesKcal ?: ((act.durationSeconds / 60.0) * 7.0)
+                base * 0.80
+            }
+
+        (sessionBurn + externalBurn).toFloat()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+
+    val nutritionTargets: StateFlow<NutritionTargets> = combine(
+        repository.userProfile,
+        dailyActiveCaloriesBurned
+    ) { profile, activeBurn ->
+        val weight = profile?.currentWeight
+        val height = profile?.height
+        val age = profile?.calculatedAge
+        val sex = try { BiologicalSex.valueOf(profile?.biologicalSex ?: "MALE") } catch (e: Exception) { BiologicalSex.MALE }
+        val activity = try { ActivityLevel.valueOf(profile?.activityLevel ?: "MODERATE") } catch (e: Exception) { ActivityLevel.MODERATE }
+        val engineMode = try { NutritionEngineMode.valueOf(profile?.nutritionEngineMode ?: "CLASSIC_FORMULA") } catch (e: Exception) { NutritionEngineMode.CLASSIC_FORMULA }
+        val allocStrategy = try { ActivityAllocationStrategy.valueOf(profile?.activityAllocationStrategy ?: "REALTIME_DAILY_BURN") } catch (e: Exception) { ActivityAllocationStrategy.REALTIME_DAILY_BURN }
+        val macroSplit = try { ActiveCalorieMacroSplit.valueOf(profile?.activeCalorieMacroSplit ?: "CARBS_PRIORITY") } catch (e: Exception) { ActiveCalorieMacroSplit.CARBS_PRIORITY }
+        val preset = try { MacroPreset.valueOf(profile?.macroPreset ?: "BALANCED_SPORTS") } catch (e: Exception) { MacroPreset.BALANCED_SPORTS }
+        val goal = try { NutritionGoalType.valueOf(profile?.nutritionGoalType ?: "MAINTENANCE") } catch (e: Exception) { NutritionGoalType.MAINTENANCE }
+
+        NutritionCalculator.calculateTargets(
+            weightKg = weight,
+            heightCm = height,
+            ageYears = age,
+            sex = sex,
+            activityLevel = activity,
+            engineMode = engineMode,
+            allocationStrategy = allocStrategy,
+            activeMacroSplit = macroSplit,
+            macroPreset = preset,
+            goalType = goal,
+            weeklyRatePercent = profile?.weeklyRatePercent,
+            targetWeightKg = null,
+            targetDateTimestamp = profile?.targetGoalDateTimestamp,
+            activeCaloriesBurnedToday = activeBurn,
+            customCalories = profile?.customCaloriesTarget,
+            customProteinG = profile?.customProteinTargetG,
+            customCarbsG = profile?.customCarbsTargetG,
+            customFatG = profile?.customFatTargetG,
+            customFiberG = profile?.customFiberTargetG
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        NutritionCalculator.calculateTargets(null, null, null)
+    )
+
+    fun updateNutritionPlan(
+        activityLevel: ActivityLevel,
+        engineMode: NutritionEngineMode,
+        allocationStrategy: ActivityAllocationStrategy,
+        activeMacroSplit: ActiveCalorieMacroSplit,
+        macroPreset: MacroPreset,
+        goalType: NutritionGoalType,
+        weeklyRatePercent: Float? = null,
+        targetDateTimestamp: Long? = null,
+        customCalories: Float? = null,
+        customProteinG: Float? = null,
+        customCarbsG: Float? = null,
+        customFatG: Float? = null,
+        customFiberG: Float? = null
+    ) {
+        viewModelScope.launch {
+            val current = repository.userProfile.firstOrNull() ?: UserProfile()
+            repository.updateProfile(
+                current.copy(
+                    activityLevel = activityLevel.name,
+                    nutritionEngineMode = engineMode.name,
+                    activityAllocationStrategy = allocationStrategy.name,
+                    activeCalorieMacroSplit = activeMacroSplit.name,
+                    macroPreset = macroPreset.name,
+                    nutritionGoalType = goalType.name,
+                    weeklyRatePercent = weeklyRatePercent,
+                    targetGoalDateTimestamp = targetDateTimestamp,
+                    customCaloriesTarget = customCalories,
+                    customProteinTargetG = customProteinG,
+                    customCarbsTargetG = customCarbsG,
+                    customFatTargetG = customFatG,
+                    customFiberTargetG = customFiberG
+                )
+            )
+        }
+    }
+
+    val weeklyCalibrationState: StateFlow<CalibrationCheckInState?> = combine(
+        repository.userProfile,
+        repository.allMetricsWithLatest
+    ) { profile, metrics ->
+        val weightMetric = metrics.find { it.name.lowercase().contains("weight") } ?: return@combine null
+        val entries = repository.getEntriesForMetric(weightMetric.id).firstOrNull() ?: emptyList()
+        val now = System.currentTimeMillis()
+        val fourteenDaysAgo = now - (14L * 24 * 60 * 60 * 1000L)
+        val recentEntries = entries.filter { it.timestamp >= fourteenDaysAgo }.sortedBy { it.timestamp }
+
+        if (recentEntries.size < 3) return@combine null
+
+        val lastDismissed = profile?.lastCalibrationDismissedTimestamp ?: 0L
+        if (now - lastDismissed < 7L * 24 * 60 * 60 * 1000L) return@combine null
+
+        val oldest = recentEntries.first()
+        val latest = recentEntries.last()
+        val daysBetween = ((latest.timestamp - oldest.timestamp) / (1000L * 60 * 60 * 24)).coerceAtLeast(3L)
+        val observedWeeklyDelta = ((latest.value - oldest.value) / daysBetween.toDouble()) * 7.0
+
+        val targetWeeklyDelta = when (profile?.nutritionGoalType) {
+            "CUT_AGGRESSIVE" -> -0.8
+            "CUT_MODERATE" -> -0.5
+            "LEAN_BULK" -> 0.25
+            else -> 0.0
+        }
+
+        NutritionCalculator.evaluateWeeklyCalibration(
+            currentTdeeKcal = 2500,
+            observedSevenDayWeightDeltaKg = observedWeeklyDelta,
+            targetWeeklyWeightDeltaKg = targetWeeklyDelta,
+            weighInCount = recentEntries.size,
+            loggedDaysCount = 5
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun applyCalibrationAdjustment(deltaKcal: Int) {
+        viewModelScope.launch {
+            val current = repository.userProfile.firstOrNull() ?: UserProfile()
+            val currentTarget = current.customCaloriesTarget ?: 2400f
+            repository.updateProfile(
+                current.copy(
+                    customCaloriesTarget = (currentTarget + deltaKcal).coerceAtLeast(1200f),
+                    lastCalibrationDismissedTimestamp = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    fun dismissCalibration() {
+        viewModelScope.launch {
+            val current = repository.userProfile.firstOrNull() ?: UserProfile()
+            repository.updateProfile(
+                current.copy(
+                    lastCalibrationDismissedTimestamp = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val loggedFoodEntries: StateFlow<List<LoggedFoodEntry>> = _selectedFoodDateTimestamp
+        .flatMapLatest { timestamp -> repository.getLoggedFoodEntriesForDate(timestamp) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val dailyNutrientSummary: StateFlow<DailyNutrientSummary> = loggedFoodEntries
+        .map { entries ->
+            DailyNutrientSummary(
+                caloriesKcal = entries.sumOf { it.caloriesKcal.toDouble() }.toFloat(),
+                proteinG = entries.sumOf { it.proteinG.toDouble() }.toFloat(),
+                carbsG = entries.sumOf { it.carbsG.toDouble() }.toFloat(),
+                fatG = entries.sumOf { it.fatG.toDouble() }.toFloat(),
+                fiberG = entries.sumOf { it.fiberG.toDouble() }.toFloat(),
+                saltG = entries.sumOf { it.saltG.toDouble() }.toFloat(),
+                saturatedFatG = entries.sumOf { it.saturatedFatG.toDouble() }.toFloat(),
+                sugarsG = entries.sumOf { it.sugarsG.toDouble() }.toFloat()
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DailyNutrientSummary())
+
+    private val _foodSearchQuery = MutableStateFlow("")
+    val foodSearchQuery: StateFlow<String> = _foodSearchQuery.asStateFlow()
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val foodSearchResults: StateFlow<List<FoodItem>> = _foodSearchQuery
+        .debounce(300L)
+        .distinctUntilChanged()
+        .flatMapLatest { query -> repository.searchFoodItems(query.trim()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setFoodSearchQuery(query: String) {
+        _foodSearchQuery.value = query
+    }
+
+    fun setSelectedFoodDate(timestamp: Long) {
+        _selectedFoodDateTimestamp.value = getStartOfDayTimestamp(timestamp)
+    }
+
+    fun changeSelectedFoodDate(daysDelta: Int) {
+        val cal = java.util.Calendar.getInstance().apply {
+            timeInMillis = _selectedFoodDateTimestamp.value
+            add(java.util.Calendar.DAY_OF_YEAR, daysDelta)
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        _selectedFoodDateTimestamp.value = cal.timeInMillis
+    }
+
+    fun logFoodItem(
+        food: com.example.gains.data.FoodItem,
+        nutrient: com.example.gains.data.FoodNutrient?,
+        serving: com.example.gains.data.FoodServing?,
+        gramWeightTotal: Float,
+        mealType: String
+    ) {
+        viewModelScope.launch {
+            val totalGrams = gramWeightTotal.coerceAtLeast(1f)
+            val multiplier = totalGrams / 100f
+
+            val unit = if (food.perUnit == "100ml") "ml" else "g"
+            val entry = LoggedFoodEntry(
+                dateTimestamp = _selectedFoodDateTimestamp.value,
+                timestamp = System.currentTimeMillis(),
+                mealType = mealType,
+                foodId = food.id,
+                foodName = food.name,
+                brandName = food.brand,
+                servingDescription = serving?.description ?: "${totalGrams.toInt()}$unit",
+                servingQuantity = 1.0f,
+                gramWeightTotal = totalGrams,
+                caloriesKcal = (nutrient?.caloriesKcal ?: 0f) * multiplier,
+                proteinG = (nutrient?.proteinG ?: 0f) * multiplier,
+                carbsG = (nutrient?.carbsG ?: 0f) * multiplier,
+                fatG = (nutrient?.fatG ?: 0f) * multiplier,
+                fiberG = (nutrient?.fiberG ?: 0f) * multiplier,
+                saltG = (nutrient?.saltG ?: 0f) * multiplier,
+                saturatedFatG = (nutrient?.saturatedFatG ?: 0f) * multiplier,
+                sugarsG = (nutrient?.sugarsG ?: 0f) * multiplier,
+                imageUrl = food.imageUrl
+            )
+            repository.insertLoggedFoodEntry(entry)
+        }
+    }
+
+    val recipesWithDetails: StateFlow<List<com.example.gains.data.FoodRecipeWithDetails>> = repository.allRecipesWithDetails
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _selectedIngredientFilters = MutableStateFlow<Set<String>>(emptySet())
+    val selectedIngredientFilters: StateFlow<Set<String>> = _selectedIngredientFilters.asStateFlow()
+
+    val filteredRecipes: StateFlow<List<com.example.gains.data.FoodRecipeWithDetails>> = combine(
+        recipesWithDetails,
+        _selectedIngredientFilters
+    ) { recipes, filters ->
+        if (filters.isEmpty()) {
+            recipes
+        } else {
+            recipes.filter { r ->
+                val recipeIngredientNames = r.ingredients.map { it.foodName.lowercase() }
+                filters.any { filter ->
+                    recipeIngredientNames.any { it.contains(filter.lowercase()) }
+                }
+            }.sortedByDescending { r ->
+                val recipeIngredientNames = r.ingredients.map { it.foodName.lowercase() }
+                filters.count { filter -> recipeIngredientNames.any { it.contains(filter.lowercase()) } }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun toggleIngredientFilter(ingredientName: String) {
+        val lower = ingredientName.trim().lowercase()
+        if (lower.isBlank()) return
+        _selectedIngredientFilters.update { current ->
+            if (current.contains(lower)) current - lower else current + lower
+        }
+    }
+
+    fun clearIngredientFilters() {
+        _selectedIngredientFilters.value = emptySet()
+    }
+
+    fun saveRecipe(recipe: com.example.gains.data.FoodRecipe, ingredients: List<com.example.gains.data.FoodRecipeIngredient>) {
+        viewModelScope.launch {
+            repository.saveRecipe(recipe, ingredients)
+        }
+    }
+
+    fun deleteRecipe(recipeId: Long) {
+        viewModelScope.launch {
+            repository.deleteRecipe(recipeId)
+        }
+    }
+
+    fun logRecipeAsMeal(recipeId: Long, servingsToLog: Float, mealType: String) {
+        viewModelScope.launch {
+            repository.logRecipeAsMeal(recipeId, servingsToLog, mealType, _selectedFoodDateTimestamp.value)
+        }
+    }
+
+    fun deleteLoggedFoodEntry(id: Long) {
+        viewModelScope.launch {
+            repository.deleteLoggedFoodEntryById(id)
+        }
+    }
+
+    private fun getStartOfDayTimestamp(millis: Long): Long {
+        val cal = java.util.Calendar.getInstance().apply {
+            timeInMillis = millis
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        return cal.timeInMillis
     }
 
     fun syncDatabase() {

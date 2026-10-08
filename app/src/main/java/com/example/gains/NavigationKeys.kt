@@ -16,3 +16,5 @@ import kotlinx.serialization.Serializable
 @Serializable data class ExerciseDetail(val exerciseId: Int) : NavKey
 
 @Serializable data class MetricHistory(val metricId: Long) : NavKey
+
+@Serializable data class ExternalRunDetail(val activityId: Long) : NavKey

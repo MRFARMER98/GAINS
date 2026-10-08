@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -85,24 +86,30 @@ fun MainScreen(
                     CustomTabItem(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        icon = Icons.Default.FitnessCenter,
-                        label = "EXERCISES"
+                        icon = Icons.Default.Restaurant,
+                        label = "FOOD"
                     )
                     CustomTabItem(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        icon = Icons.Default.CalendarMonth,
-                        label = "PLANNER"
+                        icon = Icons.Default.FitnessCenter,
+                        label = "EXERCISES"
                     )
                     CustomTabItem(
                         selected = selectedTab == 3,
                         onClick = { selectedTab = 3 },
-                        icon = Icons.Default.Person,
-                        label = "YOU"
+                        icon = Icons.Default.CalendarMonth,
+                        label = "PLANNER"
                     )
                     CustomTabItem(
                         selected = selectedTab == 4,
                         onClick = { selectedTab = 4 },
+                        icon = Icons.Default.Person,
+                        label = "YOU"
+                    )
+                    CustomTabItem(
+                        selected = selectedTab == 5,
+                        onClick = { selectedTab = 5 },
                         icon = Icons.Default.Settings,
                         label = "SETTINGS"
                     )
@@ -123,10 +130,17 @@ fun MainScreen(
                         viewModel = viewModel,
                         plannedSessions = allPlannedSessions,
                         labels = allLabels,
+                        settingsManager = app.settingsManager,
                         onItemClick = onItemClick
                     )
                 }
                 1 -> {
+                    com.example.gains.ui.main.tabs.FoodTabContent(
+                        viewModel = viewModel,
+                        repository = app.repository
+                    )
+                }
+                2 -> {
                     ExercisesTabContent(
                         exercises = exercisesWithSummary,
                         syncState = syncState,
@@ -134,7 +148,7 @@ fun MainScreen(
                         onItemClick = onItemClick
                     )
                 }
-                2 -> {
+                3 -> {
                     PlannerTabContent(
                         sessions = sessions,
                         plannedSessions = allPlannedSessions,
@@ -168,7 +182,7 @@ fun MainScreen(
                         onItemClick = onItemClick
                     )
                 }
-                3 -> {
+                4 -> {
                     YouTabContent(
                         viewModel = viewModel,
                         settingsManager = app.settingsManager,

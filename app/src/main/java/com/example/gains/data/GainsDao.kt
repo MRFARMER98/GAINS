@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -315,12 +316,187 @@ interface GainsDao {
     @Query("SELECT * FROM external_activities ORDER BY startTime DESC")
     fun getAllExternalActivities(): Flow<List<ExternalActivity>>
 
+    @Query("SELECT * FROM external_activities")
+    suspend fun getAllExternalActivitiesList(): List<ExternalActivity>
+
     @Query("SELECT externalId FROM external_activities")
     suspend fun getAllExternalActivityIds(): List<String>
 
+    @Query("SELECT * FROM external_activities WHERE externalId = :extId LIMIT 1")
+    suspend fun getExternalActivityByExtId(extId: String): ExternalActivity?
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertExternalActivities(activities: List<ExternalActivity>)
+
+    @Update
+    suspend fun updateExternalActivity(activity: ExternalActivity)
+
+    // Food Tracker DAOs
+    @Query("""
+        SELECT * FROM food_items 
+        WHERE name LIKE '%' || :query || '%' OR brand LIKE '%' || :query || '%'
+        ORDER BY CASE WHEN brand = 'Albert Heijn' THEN 0 ELSE 1 END, name ASC
+        LIMIT 50
+    """)
+    fun searchFoodItems(query: String): Flow<List<FoodItem>>
+
+    @Query("SELECT * FROM food_items WHERE barcode = :barcode LIMIT 1")
+    suspend fun getFoodItemByBarcode(barcode: String): FoodItem?
+
+    @Query("SELECT * FROM food_items WHERE id = :id LIMIT 1")
+    suspend fun getFoodItemById(id: String): FoodItem?
+
+    @Query("SELECT * FROM food_nutrients WHERE foodId = :foodId LIMIT 1")
+    fun getNutrientForFood(foodId: String): Flow<FoodNutrient?>
+
+    @Query("SELECT * FROM food_nutrients WHERE foodId = :foodId LIMIT 1")
+    suspend fun getNutrientForFoodSync(foodId: String): FoodNutrient?
+
+    // Bonus Deals DAOs (Date-ranged for active promotions)
+    @Query("""
+        SELECT * FROM bonus_deals 
+        WHERE foodId = :foodId 
+          AND (validFrom <= :nowMs OR validFrom = 0)
+          AND (validUntil >= :nowMs OR validUntil = 0)
+        ORDER BY validFrom DESC LIMIT 1
+    """)
+    fun getActiveBonusDealForFood(foodId: String, nowMs: Long = System.currentTimeMillis()): Flow<BonusDeal?>
+
+    @Query("""
+        SELECT * FROM bonus_deals 
+        WHERE foodId = :foodId 
+          AND (validFrom <= :nowMs OR validFrom = 0)
+          AND (validUntil >= :nowMs OR validUntil = 0)
+        ORDER BY validFrom DESC LIMIT 1
+    """)
+    suspend fun getActiveBonusDealForFoodSync(foodId: String, nowMs: Long = System.currentTimeMillis()): BonusDeal?
+
+    @Transaction
+    @Query("""
+        SELECT * FROM food_items 
+        WHERE id IN (
+            SELECT foodId FROM bonus_deals 
+            WHERE (validFrom <= :nowMs OR validFrom = 0)
+              AND (validUntil >= :nowMs OR validUntil = 0)
+        )
+    """)
+    fun getActiveFoodsWithBonusDeals(nowMs: Long = System.currentTimeMillis()): Flow<List<FoodWithBonus>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBonusDeals(deals: List<BonusDeal>)
+
+    @Query("SELECT * FROM food_servings WHERE foodId = :foodId ORDER BY isDefault DESC, id ASC")
+    fun getServingsForFood(foodId: String): Flow<List<FoodServing>>
+
+    @Query("SELECT * FROM food_servings WHERE foodId = :foodId ORDER BY isDefault DESC, id ASC")
+    suspend fun getServingsForFoodSync(foodId: String): List<FoodServing>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFoodItems(foods: List<FoodItem>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFoodItem(food: FoodItem)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFoodNutrients(nutrients: List<FoodNutrient>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFoodNutrient(nutrient: FoodNutrient)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFoodServings(servings: List<FoodServing>)
+
+    @Query("SELECT COUNT(*) FROM food_items")
+    suspend fun getFoodCount(): Int
+
+    // Logged Food Entries
+    @Query("SELECT * FROM logged_food_entries WHERE dateTimestamp = :dateTimestamp ORDER BY timestamp ASC")
+    fun getLoggedFoodEntriesForDate(dateTimestamp: Long): Flow<List<LoggedFoodEntry>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLoggedFoodEntry(entry: LoggedFoodEntry): Long
+
+    @Delete
+    suspend fun deleteLoggedFoodEntry(entry: LoggedFoodEntry)
+
+    @Query("DELETE FROM logged_food_entries WHERE id = :id")
+    suspend fun deleteLoggedFoodEntryById(id: Long)
+
+    // Food Recipes
+    @Query("SELECT * FROM food_recipes ORDER BY createdAt DESC")
+    fun getAllRecipes(): Flow<List<FoodRecipe>>
+
+    @Query("SELECT * FROM food_recipes WHERE id = :recipeId")
+    fun getRecipeById(recipeId: Long): Flow<FoodRecipe?>
+
+    @Query("SELECT * FROM food_recipes WHERE id = :recipeId")
+    suspend fun getRecipeByIdSync(recipeId: Long): FoodRecipe?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFoodRecipe(recipe: FoodRecipe): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecipeIngredients(ingredients: List<FoodRecipeIngredient>)
+
+    @Transaction
+    suspend fun saveRecipeTransactional(recipe: FoodRecipe, ingredients: List<FoodRecipeIngredient>): Long {
+        val recipeId = insertFoodRecipe(recipe)
+        deleteRecipeIngredientsForRecipe(recipeId)
+        val updatedIngredients = ingredients.map { it.copy(recipeId = recipeId) }
+        insertRecipeIngredients(updatedIngredients)
+        return recipeId
+    }
+
+    @Query("SELECT * FROM food_recipe_ingredients WHERE recipeId = :recipeId")
+    suspend fun getRecipeIngredients(recipeId: Long): List<FoodRecipeIngredient>
+
+    @Query("""
+        SELECT 
+            i.id AS ingredientId,
+            i.recipeId AS recipeId,
+            i.foodId AS foodId,
+            f.name AS foodName,
+            f.brand AS brandName,
+            i.quantityGrams AS quantityGrams,
+            i.servingDescription AS servingDescription,
+            COALESCE(n.caloriesKcal, 0.0) AS caloriesPer100g,
+            COALESCE(n.proteinG, 0.0) AS proteinPer100g,
+            COALESCE(n.carbsG, 0.0) AS carbsPer100g,
+            COALESCE(n.fatG, 0.0) AS fatPer100g,
+            COALESCE(n.fiberG, 0.0) AS fiberPer100g,
+            COALESCE(n.saltG, 0.0) AS saltPer100g,
+            COALESCE(n.saturatedFatG, 0.0) AS saturatedFatPer100g,
+            COALESCE(n.sugarsG, 0.0) AS sugarsPer100g
+        FROM food_recipe_ingredients i
+        INNER JOIN food_items f ON i.foodId = f.id
+        LEFT JOIN food_nutrients n ON f.id = n.foodId
+        WHERE i.recipeId = :recipeId
+    """)
+    suspend fun getRecipeIngredientsWithFood(recipeId: Long): List<RecipeIngredientWithFood>
+
+    @Query("DELETE FROM food_recipes WHERE id = :recipeId")
+    suspend fun deleteRecipeById(recipeId: Long)
+
+    @Query("DELETE FROM food_recipe_ingredients WHERE recipeId = :recipeId")
+    suspend fun deleteRecipeIngredientsForRecipe(recipeId: Long)
 }
+
+data class FoodItemWithDetails(
+    val food: FoodItem,
+    val nutrient: FoodNutrient?,
+    val servings: List<FoodServing> = emptyList()
+)
+
+data class DailyNutrientSummary(
+    val caloriesKcal: Float = 0f,
+    val proteinG: Float = 0f,
+    val carbsG: Float = 0f,
+    val fatG: Float = 0f,
+    val fiberG: Float = 0f,
+    val saltG: Float = 0f,
+    val saturatedFatG: Float = 0f,
+    val sugarsG: Float = 0f
+)
 
 data class TemplateSetWithExercise(
     val id: Int,
@@ -359,3 +535,4 @@ data class MetricWithLatestEntry(
     val latestTimestamp: Long?,
     val latestValue: Float?
 )
+

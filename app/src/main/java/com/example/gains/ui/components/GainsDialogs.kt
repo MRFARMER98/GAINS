@@ -211,12 +211,13 @@ fun CreateLabelDialog(
 fun EditProfileDialog(
     profile: UserProfile?,
     onDismiss: () -> Unit,
-    onSaveClick: (name: String, photoUri: String?, height: Double?, age: Int?, weight: Double?, birthDateTimestamp: Long?) -> Unit
+    onSaveClick: (name: String, photoUri: String?, height: Double?, age: Int?, weight: Double?, birthDateTimestamp: Long?, biologicalSex: String) -> Unit
 ) {
     var name by remember { mutableStateOf(profile?.name ?: "") }
     var height by remember { mutableStateOf(profile?.height?.let { if (it % 1 == 0.0) it.toInt().toString() else it.toString() } ?: "") }
     var weight by remember { mutableStateOf(profile?.currentWeight?.let { if (it % 1 == 0.0) it.toInt().toString() else it.toString() } ?: "") }
     var birthDateTimestamp by remember { mutableStateOf(profile?.birthDateTimestamp) }
+    var biologicalSex by remember { mutableStateOf(profile?.biologicalSex ?: "MALE") }
     var photoUri by remember { mutableStateOf(profile?.photoUri) }
     var showDatePicker by remember { mutableStateOf(false) }
 
@@ -426,6 +427,46 @@ fun EditProfileDialog(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Biological Sex Selection
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "BIOLOGICAL SEX",
+                        style = LabelCaps.copy(fontSize = 9.sp),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("MALE" to "Male", "FEMALE" to "Female").forEach { (sexKey, label) ->
+                            val isSelected = biologicalSex.equals(sexKey, ignoreCase = true)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { biologicalSex = sexKey }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = LabelCaps.copy(fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Row(
@@ -445,7 +486,8 @@ fun EditProfileDialog(
                                     height.toDoubleOrNull(),
                                     calculatedAge,
                                     weight.toDoubleOrNull(),
-                                    birthDateTimestamp
+                                    birthDateTimestamp,
+                                    biologicalSex
                                 )
                             }
                         },

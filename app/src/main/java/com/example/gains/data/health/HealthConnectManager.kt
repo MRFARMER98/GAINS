@@ -3,8 +3,14 @@ package com.example.gains.data.health
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.BodyFatRecord
+import androidx.health.connect.client.records.DistanceRecord
+import androidx.health.connect.client.records.ExerciseRouteResult
 import androidx.health.connect.client.records.ExerciseSessionRecord
+import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
@@ -20,7 +26,14 @@ object HealthConnectManager {
     val REQUIRED_PERMISSIONS = setOf(
         HealthPermission.getReadPermission(WeightRecord::class),
         HealthPermission.getReadPermission(BodyFatRecord::class),
-        HealthPermission.getReadPermission(ExerciseSessionRecord::class)
+        HealthPermission.getReadPermission(ExerciseSessionRecord::class),
+        HealthPermission.getReadPermission(DistanceRecord::class),
+        HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(StepsRecord::class),
+        HealthPermission.getReadPermission(SleepSessionRecord::class),
+        "android.permission.health.READ_EXERCISE_ROUTES",
+        "android.permission.health.READ_HEALTH_DATA_HISTORY"
     )
 
     fun getSdkStatus(context: Context): Int {
@@ -38,6 +51,29 @@ object HealthConnectManager {
         return granted.containsAll(REQUIRED_PERMISSIONS)
     }
 
+    fun isSamsungHealth(packageName: String?): Boolean {
+        if (packageName == null) return false
+        val lower = packageName.lowercase()
+        return lower.contains("shealth") || lower.contains("samsung") || lower.contains("sec.android")
+    }
+
+    fun formatSourceApp(packageName: String?): String {
+        if (packageName.isNullOrEmpty()) return "Health Connect"
+        val lower = packageName.lowercase()
+        return when {
+            lower.contains("nike") || lower.contains("plusgps") -> "Nike Run Club"
+            lower.contains("garmin") -> "Garmin Connect"
+            lower.contains("shealth") || lower.contains("samsung") || lower.contains("sec.android") -> "Samsung Health"
+            lower.contains("fitness") || lower.contains("google.android.apps.fitness") -> "Google Fit"
+            lower.contains("fitbit") -> "Fitbit"
+            lower.contains("strava") -> "Strava"
+            lower.contains("mapmyrun") -> "MapMyRun"
+            lower.contains("runkeeper") -> "Runkeeper"
+            lower.contains("runtastic") || lower.contains("adidas") -> "Adidas Running"
+            else -> packageName
+        }
+    }
+
     suspend fun syncData(context: Context, dao: GainsDao): Result<Int> {
         if (!isAvailable(context)) {
             return Result.failure(IllegalStateException("Health Connect is not available on this device."))
@@ -46,23 +82,41 @@ object HealthConnectManager {
         return try {
             val client = HealthConnectClient.getOrCreate(context)
             val granted = client.permissionController.getGrantedPermissions()
-            if (!granted.containsAll(REQUIRED_PERMISSIONS)) {
+            if (granted.isEmpty()) {
                 return Result.failure(SecurityException("Health Connect permissions not granted."))
             }
 
-            val thirtyDaysAgo = Instant.now().minus(30, ChronoUnit.DAYS)
-            val timeRangeFilter = TimeRangeFilter.after(thirtyDaysAgo)
+            // Clean up existing DB activities with legacy raw package names
+            try {
+                val existingList = dao.getAllExternalActivitiesList()
+                for (activity in existingList) {
+                    val formatted = formatSourceApp(activity.sourceApp)
+                    if (formatted != activity.sourceApp) {
+                        dao.updateExternalActivity(activity.copy(sourceApp = formatted))
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore cleanup error if any
+            }
+
+            // Sync boundary: August 1st of current year (or previous year if before August)
+            val now = java.time.LocalDate.now()
+            val year = if (now.monthValue < 8) now.year - 1 else now.year
+            val augustFirst = java.time.ZonedDateTime.of(year, 8, 1, 0, 0, 0, 0, java.time.ZoneId.systemDefault()).toInstant()
+            val timeRangeFilter = TimeRangeFilter.after(augustFirst)
             var totalSyncedCount = 0
 
             // 1. Sync Weight Records
-            val weightResponse = client.readRecords(
-                ReadRecordsRequest(
-                    recordType = WeightRecord::class,
-                    timeRangeFilter = timeRangeFilter
+            val weightResponse = try {
+                client.readRecords(
+                    ReadRecordsRequest(
+                        recordType = WeightRecord::class,
+                        timeRangeFilter = timeRangeFilter
+                    )
                 )
-            )
+            } catch (e: Exception) { null }
 
-            if (weightResponse.records.isNotEmpty()) {
+            if (weightResponse != null && weightResponse.records.isNotEmpty()) {
                 var weightMetric = dao.getMetricDefinitionByName("Body Weight")
                 if (weightMetric == null) {
                     val id = dao.insertMetricDefinition(
@@ -93,14 +147,16 @@ object HealthConnectManager {
             }
 
             // 2. Sync Body Fat Records
-            val bodyFatResponse = client.readRecords(
-                ReadRecordsRequest(
-                    recordType = BodyFatRecord::class,
-                    timeRangeFilter = timeRangeFilter
+            val bodyFatResponse = try {
+                client.readRecords(
+                    ReadRecordsRequest(
+                        recordType = BodyFatRecord::class,
+                        timeRangeFilter = timeRangeFilter
+                    )
                 )
-            )
+            } catch (e: Exception) { null }
 
-            if (bodyFatResponse.records.isNotEmpty()) {
+            if (bodyFatResponse != null && bodyFatResponse.records.isNotEmpty()) {
                 var bodyFatMetric = dao.getMetricDefinitionByName("Body Fat (%)")
                 if (bodyFatMetric == null) {
                     val id = dao.insertMetricDefinition(
@@ -130,38 +186,220 @@ object HealthConnectManager {
                 }
             }
 
-            // 3. Sync Exercise Sessions (Workouts)
-            val exerciseResponse = client.readRecords(
-                ReadRecordsRequest(
-                    recordType = ExerciseSessionRecord::class,
-                    timeRangeFilter = timeRangeFilter
+            // 3. Sync Steps (Prioritizing Samsung Health)
+            val stepsResponse = try {
+                client.readRecords(
+                    ReadRecordsRequest(
+                        recordType = StepsRecord::class,
+                        timeRangeFilter = timeRangeFilter
+                    )
                 )
-            )
+            } catch (e: Exception) { null }
 
-            if (exerciseResponse.records.isNotEmpty()) {
-                val existingActivityIds = dao.getAllExternalActivityIds().toSet()
-                val newActivities = exerciseResponse.records.mapNotNull { record ->
+            if (stepsResponse != null && stepsResponse.records.isNotEmpty()) {
+                var stepsMetric = dao.getMetricDefinitionByName("Daily Steps")
+                if (stepsMetric == null) {
+                    val id = dao.insertMetricDefinition(
+                        MetricDefinition(name = "Daily Steps", unit = "steps", isSystem = true, displayOrder = 3, source = "HEALTH_CONNECT")
+                    )
+                    stepsMetric = dao.getMetricDefinitionById(id)
+                }
+
+                if (stepsMetric != null) {
+                    val existingExternalIds = dao.getAllMetricEntryExternalIds().toSet()
+                    
+                    // Filter records: Prefer Samsung Health records if present!
+                    val samsungSteps = stepsResponse.records.filter { isSamsungHealth(it.metadata.dataOrigin.packageName) }
+                    val targetStepRecords = if (samsungSteps.isNotEmpty()) samsungSteps else stepsResponse.records
+
+                    val newEntries = targetStepRecords.mapNotNull { record ->
+                        val extId = record.metadata.id
+                        if (existingExternalIds.contains(extId)) null
+                        else {
+                            MetricEntry(
+                                metricId = stepsMetric.id,
+                                timestamp = record.startTime.toEpochMilli(),
+                                value = record.count.toFloat(),
+                                externalId = extId
+                            )
+                        }
+                    }
+                    if (newEntries.isNotEmpty()) {
+                        dao.insertMetricEntries(newEntries)
+                        totalSyncedCount += newEntries.size
+                    }
+                }
+            }
+
+            // 4. Sync Sleep Sessions (Prioritizing Samsung Health)
+            val sleepResponse = try {
+                client.readRecords(
+                    ReadRecordsRequest(
+                        recordType = SleepSessionRecord::class,
+                        timeRangeFilter = timeRangeFilter
+                    )
+                )
+            } catch (e: Exception) { null }
+
+            if (sleepResponse != null && sleepResponse.records.isNotEmpty()) {
+                var sleepMetric = dao.getMetricDefinitionByName("Sleep")
+                if (sleepMetric == null) {
+                    val id = dao.insertMetricDefinition(
+                        MetricDefinition(name = "Sleep", unit = "hrs", isSystem = true, displayOrder = 4, source = "HEALTH_CONNECT")
+                    )
+                    sleepMetric = dao.getMetricDefinitionById(id)
+                }
+
+                if (sleepMetric != null) {
+                    val existingExternalIds = dao.getAllMetricEntryExternalIds().toSet()
+
+                    // Filter records: Prefer Samsung Health records if present!
+                    val samsungSleep = sleepResponse.records.filter { isSamsungHealth(it.metadata.dataOrigin.packageName) }
+                    val targetSleepRecords = if (samsungSleep.isNotEmpty()) samsungSleep else sleepResponse.records
+
+                    val newEntries = targetSleepRecords.mapNotNull { record ->
+                        val extId = record.metadata.id
+                        if (existingExternalIds.contains(extId)) null
+                        else {
+                            val durationMinutes = ChronoUnit.MINUTES.between(record.startTime, record.endTime)
+                            val hours = durationMinutes / 60.0f
+                            MetricEntry(
+                                metricId = sleepMetric.id,
+                                timestamp = record.endTime.toEpochMilli(),
+                                value = hours,
+                                externalId = extId
+                            )
+                        }
+                    }
+                    if (newEntries.isNotEmpty()) {
+                        dao.insertMetricEntries(newEntries)
+                        totalSyncedCount += newEntries.size
+                    }
+                }
+            }
+
+            // 5. Bulk Read Distance & Calories Records for entire time window
+            val allDistances = try {
+                client.readRecords(ReadRecordsRequest(recordType = DistanceRecord::class, timeRangeFilter = timeRangeFilter)).records
+            } catch (e: Exception) { emptyList() }
+
+            val allTotalCalories = try {
+                client.readRecords(ReadRecordsRequest(recordType = TotalCaloriesBurnedRecord::class, timeRangeFilter = timeRangeFilter)).records
+            } catch (e: Exception) { emptyList() }
+
+            val allActiveCalories = try {
+                client.readRecords(ReadRecordsRequest(recordType = ActiveCaloriesBurnedRecord::class, timeRangeFilter = timeRangeFilter)).records
+            } catch (e: Exception) { emptyList() }
+
+            // 6. Sync Exercise Sessions (Workouts)
+            val exerciseResponse = try {
+                client.readRecords(
+                    ReadRecordsRequest(
+                        recordType = ExerciseSessionRecord::class,
+                        timeRangeFilter = timeRangeFilter
+                    )
+                )
+            } catch (e: Exception) { null }
+
+            if (exerciseResponse != null && exerciseResponse.records.isNotEmpty()) {
+                for (record in exerciseResponse.records) {
                     val extId = record.metadata.id
-                    if (existingActivityIds.contains(extId)) null
-                    else {
-                        val duration = ChronoUnit.SECONDS.between(record.startTime, record.endTime)
-                        val title = record.title?.ifBlank { null } ?: formatExerciseType(record.exerciseType)
-                        val sourceApp = record.metadata.dataOrigin.packageName
+                    val duration = ChronoUnit.SECONDS.between(record.startTime, record.endTime)
+                    val rawSource = record.metadata.dataOrigin.packageName
+                    val formattedSource = formatSourceApp(rawSource)
+                    val title = record.title?.ifBlank { null } ?: if (formattedSource == "Nike Run Club") "Nike Run Club Run" else formatExerciseType(record.exerciseType)
 
-                        ExternalActivity(
+                    val startBuf = record.startTime.minus(2, ChronoUnit.MINUTES)
+                    val endBuf = record.endTime.plus(2, ChronoUnit.MINUTES)
+
+                    // Match Distance records from SAME app package name first to prevent multi-app triple counting
+                    val sameOriginDistances = allDistances.filter { d ->
+                        d.metadata.dataOrigin.packageName == rawSource &&
+                        d.startTime.isBefore(endBuf) && d.endTime.isAfter(startBuf)
+                    }
+                    val sessionDistances = if (sameOriginDistances.isNotEmpty()) {
+                        sameOriginDistances
+                    } else {
+                        val fallbackMatching = allDistances.filter { d ->
+                            d.startTime.isBefore(endBuf) && d.endTime.isAfter(startBuf)
+                        }
+                        val groupedByOrigin = fallbackMatching.groupBy { it.metadata.dataOrigin.packageName }
+                        groupedByOrigin.values.maxByOrNull { list -> list.sumOf { it.distance.inMeters } } ?: emptyList()
+                    }
+                    val distanceMeters = sessionDistances.sumOf { it.distance.inMeters }.takeIf { it > 0 }
+
+                    // Match Calories records from SAME app package name first
+                    val sameOriginTotalCal = allTotalCalories.filter { c ->
+                        c.metadata.dataOrigin.packageName == rawSource &&
+                        c.startTime.isBefore(endBuf) && c.endTime.isAfter(startBuf)
+                    }
+                    val sameOriginActiveCal = allActiveCalories.filter { c ->
+                        c.metadata.dataOrigin.packageName == rawSource &&
+                        c.startTime.isBefore(endBuf) && c.endTime.isAfter(startBuf)
+                    }
+
+                    val totalCalSum = if (sameOriginTotalCal.isNotEmpty()) {
+                        sameOriginTotalCal.sumOf { it.energy.inKilocalories }
+                    } else {
+                        val fallbackTotal = allTotalCalories.filter { c -> c.startTime.isBefore(endBuf) && c.endTime.isAfter(startBuf) }
+                        val grouped = fallbackTotal.groupBy { it.metadata.dataOrigin.packageName }
+                        grouped.values.maxOfOrNull { list -> list.sumOf { it.energy.inKilocalories } } ?: 0.0
+                    }
+
+                    val activeCalSum = if (sameOriginActiveCal.isNotEmpty()) {
+                        sameOriginActiveCal.sumOf { it.energy.inKilocalories }
+                    } else {
+                        val fallbackActive = allActiveCalories.filter { c -> c.startTime.isBefore(endBuf) && c.endTime.isAfter(startBuf) }
+                        val grouped = fallbackActive.groupBy { it.metadata.dataOrigin.packageName }
+                        grouped.values.maxOfOrNull { list -> list.sumOf { it.energy.inKilocalories } } ?: 0.0
+                    }
+
+                    val caloriesKcal = (if (activeCalSum > 0) activeCalSum else totalCalSum).takeIf { it > 0 }
+
+                    // Read Exercise Route location points
+                    val routeJson = try {
+                        val routeResult = record.exerciseRouteResult
+                        if (routeResult is ExerciseRouteResult.Data) {
+                            val routeList = routeResult.exerciseRoute.route
+                            if (routeList.isNotEmpty()) {
+                                routeList.joinToString(prefix = "[", postfix = "]") { loc ->
+                                    """{"lat":${loc.latitude},"lng":${loc.longitude}}"""
+                                }
+                            } else null
+                        } else null
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    val existing = dao.getExternalActivityByExtId(extId)
+                    if (existing != null) {
+                        val updated = existing.copy(
+                            title = title,
+                            distanceMeters = distanceMeters,
+                            caloriesKcal = caloriesKcal,
+                            routeJson = routeJson ?: existing.routeJson,
+                            sourceApp = formattedSource
+                        )
+                        if (updated != existing) {
+                            dao.updateExternalActivity(updated)
+                            totalSyncedCount++
+                        }
+                    } else {
+                        val newAct = ExternalActivity(
                             externalId = extId,
                             title = title,
                             activityType = formatExerciseType(record.exerciseType),
                             startTime = record.startTime.toEpochMilli(),
                             endTime = record.endTime.toEpochMilli(),
                             durationSeconds = duration,
-                            sourceApp = sourceApp
+                            distanceMeters = distanceMeters,
+                            caloriesKcal = caloriesKcal,
+                            sourceApp = formattedSource,
+                            routeJson = routeJson
                         )
+                        dao.insertExternalActivities(listOf(newAct))
+                        totalSyncedCount++
                     }
-                }
-                if (newActivities.isNotEmpty()) {
-                    dao.insertExternalActivities(newActivities)
-                    totalSyncedCount += newActivities.size
                 }
             }
 
