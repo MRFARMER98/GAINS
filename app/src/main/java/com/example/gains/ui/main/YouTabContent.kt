@@ -104,6 +104,8 @@ fun YouTabContent(
     }
 
     val weightMetric = remember(metrics) { metrics.find { it.name.lowercase().contains("weight") } }
+    val stepsMetric = remember(metrics) { metrics.find { it.name.lowercase().contains("step") } }
+    val sleepMetric = remember(metrics) { metrics.find { it.name.lowercase().contains("sleep") } }
 
     // Time of day greeting
     val greeting = remember {
@@ -268,10 +270,24 @@ fun YouTabContent(
                 weightCurrent = weightMetric?.latestValue,
                 weightTarget = weightMetric?.targetValue,
                 weightUnit = weightMetric?.unit ?: "kg",
+                stepsCurrent = stepsMetric?.latestValue,
+                stepsTarget = stepsMetric?.targetValue,
+                sleepCurrent = sleepMetric?.latestValue,
+                sleepTarget = sleepMetric?.targetValue,
                 nutritionTargets = targets,
                 onSetGoalClick = {
                     if (weightMetric != null) {
                         showGoalDialog = weightMetric
+                    }
+                },
+                onStepsGoalClick = {
+                    if (stepsMetric != null) {
+                        showGoalDialog = stepsMetric
+                    }
+                },
+                onSleepGoalClick = {
+                    if (sleepMetric != null) {
+                        showGoalDialog = sleepMetric
                     }
                 },
                 onNutritionGoalClick = {

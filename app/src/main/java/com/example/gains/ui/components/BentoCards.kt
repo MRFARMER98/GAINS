@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DirectionsRun
@@ -23,6 +25,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Speed
 import com.example.gains.domain.NutritionTargets
+import java.text.NumberFormat
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
@@ -495,8 +499,21 @@ fun BentoMetricCard(
                 Column {
                     val latestVal = metric.latestValue
                     if (latestVal != null) {
+                        val formattedValue = when {
+                            metric.name.lowercase().contains("step") -> {
+                                NumberFormat.getIntegerInstance().format(latestVal.toInt())
+                            }
+                            metric.name.lowercase().contains("sleep") -> {
+                                val totalMins = (latestVal * 60).roundToInt()
+                                val h = totalMins / 60
+                                val m = totalMins % 60
+                                if (m == 0) "${h}h" else "${h}h ${m}m"
+                            }
+                            latestVal % 1f == 0f -> latestVal.toInt().toString()
+                            else -> String.format(Locale.getDefault(), "%.1f", latestVal)
+                        }
                         Text(
-                            text = if (latestVal % 1f == 0f) latestVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", latestVal),
+                            text = formattedValue,
                             style = HeaderBold.copy(fontSize = 24.sp, fontWeight = FontWeight.Black),
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -504,8 +521,12 @@ fun BentoMetricCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            val unitLabel = when {
+                                metric.name.lowercase().contains("sleep") -> "HOURS"
+                                else -> metric.unit.uppercase()
+                            }
                             Text(
-                                text = metric.unit.uppercase(),
+                                text = unitLabel,
                                 style = LabelCaps.copy(fontSize = 9.sp),
                                 color = accentThemeColor
                             )
@@ -686,8 +707,14 @@ fun GoalsHubCard(
     weightCurrent: Float?,
     weightTarget: Float?,
     weightUnit: String = "kg",
+    stepsCurrent: Float? = null,
+    stepsTarget: Float? = null,
+    sleepCurrent: Float? = null,
+    sleepTarget: Float? = null,
     nutritionTargets: NutritionTargets? = null,
     onSetGoalClick: () -> Unit,
+    onStepsGoalClick: (() -> Unit)? = null,
+    onSleepGoalClick: (() -> Unit)? = null,
     onNutritionGoalClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -784,6 +811,108 @@ fun GoalsHubCard(
                         )
                         Text(
                             text = "+ Set a target weight goal",
+                            style = BodySemiBold.copy(fontSize = 13.sp),
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Goal 3: Daily Steps Goal
+            Spacer(modifier = Modifier.height(16.dp))
+            if (stepsTarget != null) {
+                val current = stepsCurrent ?: 0f
+                val progress = if (stepsTarget > 0f) (current / stepsTarget).coerceIn(0f, 1f) else 0f
+                GoalProgressRow(
+                    title = "Daily Steps Goal",
+                    currentStr = "${NumberFormat.getIntegerInstance().format(current.toInt())} / ${NumberFormat.getIntegerInstance().format(stepsTarget.toInt())} steps",
+                    progress = progress,
+                    color = Color(0xFF10B981),
+                    isCompleted = current >= stepsTarget
+                )
+            } else if (onStepsGoalClick != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.background)
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                        .clickable { onStepsGoalClick() }
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
+                            contentDescription = null,
+                            tint = Color(0xFF10B981),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "+ Set a daily steps goal",
+                            style = BodySemiBold.copy(fontSize = 13.sp),
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Goal 4: Nightly Sleep Goal
+            Spacer(modifier = Modifier.height(16.dp))
+            if (sleepTarget != null) {
+                val current = sleepCurrent ?: 0f
+                val progress = if (sleepTarget > 0f) (current / sleepTarget).coerceIn(0f, 1f) else 0f
+                val currentMins = (current * 60).roundToInt()
+                val targetMins = (sleepTarget * 60).roundToInt()
+                val currentStr = "${currentMins / 60}h ${currentMins % 60}m"
+                val targetStr = "${targetMins / 60}h ${if (targetMins % 60 > 0) "${targetMins % 60}m" else ""}".trim()
+                GoalProgressRow(
+                    title = "Nightly Sleep Goal",
+                    currentStr = "$currentStr / $targetStr",
+                    progress = progress,
+                    color = Color(0xFF8B5CF6),
+                    isCompleted = current >= sleepTarget
+                )
+            } else if (onSleepGoalClick != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.background)
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                        .clickable { onSleepGoalClick() }
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Bedtime,
+                            contentDescription = null,
+                            tint = Color(0xFF8B5CF6),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "+ Set a nightly sleep goal",
                             style = BodySemiBold.copy(fontSize = 13.sp),
                             color = MaterialTheme.colorScheme.secondary
                         )

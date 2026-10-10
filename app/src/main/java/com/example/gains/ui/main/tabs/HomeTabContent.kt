@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,14 +23,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
+import com.example.gains.MetricHistory
 import com.example.gains.RoutinesPlanner
 import com.example.gains.WorkoutLogger
 import com.example.gains.data.FoodNutrient
 import com.example.gains.data.FoodServing
+import com.example.gains.data.MetricWithLatestEntry
 import com.example.gains.data.PlannedSession
 import com.example.gains.data.WorkoutSessionWithLabel
+import com.example.gains.data.health.HealthConnectManager
 import com.example.gains.theme.*
 import com.example.gains.ui.components.AddFoodDialog
 import com.example.gains.ui.components.GainsCard
@@ -38,10 +43,13 @@ import com.example.gains.ui.components.NutritionGoalDialog
 import com.example.gains.ui.components.SelectWorkoutTypeDialog
 import com.example.gains.ui.main.MainScreenUiState
 import com.example.gains.ui.main.MainScreenViewModel
+import com.example.gains.ui.main.SyncState
 import com.example.gains.ui.main.WeekDayStatus
 import com.example.gains.ui.main.WeeklyDashboardSummary
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 @Composable
 fun HomeTabContent(
@@ -66,6 +74,19 @@ fun HomeTabContent(
     var showWorkoutTypeDialog by remember { mutableStateOf(false) }
     var showAddFoodDialog by remember { mutableStateOf(false) }
     var showLogWeightDialog by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val hcSyncState by viewModel.hcSyncState.collectAsStateWithLifecycle()
+    val isHcAvailable = remember { HealthConnectManager.isAvailable(context) }
+
+    val stepsMetric = remember(allMetrics) { allMetrics.find { it.name.lowercase().contains("step") } }
+    val sleepMetric = remember(allMetrics) { allMetrics.find { it.name.lowercase().contains("sleep") } }
+
+    LaunchedEffect(Unit) {
+        if (isHcAvailable && HealthConnectManager.hasPermissions(context)) {
+            viewModel.syncHealthConnect(context)
+        }
+    }
 
     val todaySession = remember(sessions) {
         val todayCal = Calendar.getInstance()
@@ -142,6 +163,26 @@ fun HomeTabContent(
             )
         }
 
+        // 3.5. Daily Activity & Recovery (Steps & Sleep) Card
+        item {
+            DailyHealthSummaryCard(
+                stepsMetric = stepsMetric,
+                sleepMetric = sleepMetric,
+                hcSyncState = hcSyncState,
+                isHcAvailable = isHcAvailable,
+                onStepsClick = {
+                    stepsMetric?.let { onItemClick(MetricHistory(it.id)) }
+                },
+                onSleepClick = {
+                    sleepMetric?.let { onItemClick(MetricHistory(it.id)) }
+                },
+                onSyncClick = {
+                    viewModel.syncHealthConnect(context)
+                },
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+        }
+
         // 4. Today's Workout Action Card
         item {
             TodayWorkoutCard(
@@ -184,6 +225,8 @@ fun HomeTabContent(
             CoachInsightBanner(
                 activeBurnKcal = dailyActiveBurn,
                 completedSession = todaySession,
+                stepsMetric = stepsMetric,
+                sleepMetric = sleepMetric,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
         }
@@ -972,6 +1015,8 @@ fun QuickLogItem(
 fun CoachInsightBanner(
     activeBurnKcal: Float,
     completedSession: WorkoutSessionWithLabel?,
+    stepsMetric: MetricWithLatestEntry? = null,
+    sleepMetric: MetricWithLatestEntry? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -999,9 +1044,18 @@ fun CoachInsightBanner(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 val message = when {
-                    activeBurnKcal > 0 -> "Workout credited +${activeBurnKcal.toInt()} kcal. Extra carbohydrates have been prioritized to restock glycogen."
-                    completedSession != null -> "Great workout today! Maintain protein intake and stay hydrated for recovery."
-                    else -> "Rest day budget active. Keep protein steady and allow your muscles to recover."
+                    sleepMetric?.latestValue != null && sleepMetric.latestValue < 6.0f ->
+                        "Short sleep recorded (${String.format(Locale.getDefault(), "%.1f", sleepMetric.latestValue)} hrs). Prioritize hydration and recovery today."
+                    stepsMetric?.latestValue != null && stepsMetric.latestValue >= (stepsMetric.targetValue ?: 10000f) ->
+                        "Step goal reached (${NumberFormat.getIntegerInstance().format(stepsMetric.latestValue.toInt())} steps)! High daily movement boosts metabolic health."
+                    activeBurnKcal > 0 ->
+                        "Workout credited +${activeBurnKcal.toInt()} kcal. Extra carbohydrates have been prioritized to restock glycogen."
+                    completedSession != null ->
+                        "Great workout today! Maintain protein intake and stay hydrated for recovery."
+                    sleepMetric?.latestValue != null && sleepMetric.latestValue >= 7.5f ->
+                        "Solid sleep recovery (${String.format(Locale.getDefault(), "%.1f", sleepMetric.latestValue)} hrs). Your body is primed for optimal performance."
+                    else ->
+                        "Rest day budget active. Keep protein steady and allow your muscles to recover."
                 }
                 Text(
                     text = message,
@@ -1083,6 +1137,226 @@ fun WeeklyCalibrationCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun DailyHealthSummaryCard(
+    stepsMetric: MetricWithLatestEntry?,
+    sleepMetric: MetricWithLatestEntry?,
+    hcSyncState: SyncState,
+    isHcAvailable: Boolean,
+    onStepsClick: () -> Unit,
+    onSleepClick: () -> Unit,
+    onSyncClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    GainsCard(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Header Row: Title & Health Connect Sync Pill
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
+                        contentDescription = null,
+                        tint = Color(0xFF10B981),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "DAILY ACTIVITY & RECOVERY",
+                        style = LabelCaps.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                if (isHcAvailable) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(PrimarySoftBg)
+                            .border(1.dp, InfraredAccent.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                            .clickable { onSyncClick() }
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Sync Health Connect",
+                            tint = InfraredAccent,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (hcSyncState is SyncState.Syncing) "SYNCING..." else "SYNC HC",
+                            style = LabelCaps.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                            color = InfraredAccent
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Dual Bento Columns: Steps & Sleep
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Steps Column
+                val stepsVal = stepsMetric?.latestValue
+                val stepsTarget = stepsMetric?.targetValue ?: 10000f
+                val stepsProgress = stepsVal?.let { if (stepsTarget > 0f) (it / stepsTarget).coerceIn(0f, 1f) else 0f } ?: 0f
+
+                DailyHealthPill(
+                    icon = Icons.AutoMirrored.Filled.DirectionsWalk,
+                    title = "STEPS",
+                    valueText = stepsVal?.let { NumberFormat.getIntegerInstance().format(it.toInt()) } ?: "--",
+                    unitText = "STEPS",
+                    targetText = "GOAL ${NumberFormat.getIntegerInstance().format(stepsTarget.toInt())}",
+                    progress = stepsProgress,
+                    accentColor = Color(0xFF10B981),
+                    onClick = onStepsClick,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Sleep Column
+                val sleepVal = sleepMetric?.latestValue
+                val sleepTarget = sleepMetric?.targetValue ?: 8.0f
+                val sleepProgress = sleepVal?.let { if (sleepTarget > 0f) (it / sleepTarget).coerceIn(0f, 1f) else 0f } ?: 0f
+                val sleepFormatted = sleepVal?.let {
+                    val totalMins = (it * 60).roundToInt()
+                    val h = totalMins / 60
+                    val m = totalMins % 60
+                    if (m == 0) "${h}h" else "${h}h ${m}m"
+                } ?: "--"
+
+                DailyHealthPill(
+                    icon = Icons.Default.Bedtime,
+                    title = "SLEEP",
+                    valueText = sleepFormatted,
+                    unitText = if (sleepVal != null) String.format(Locale.getDefault(), "%.1f HRS", sleepVal) else "HOURS",
+                    targetText = "GOAL ${String.format(Locale.getDefault(), "%.1f", sleepTarget)}H",
+                    progress = sleepProgress,
+                    accentColor = Color(0xFF8B5CF6),
+                    onClick = onSleepClick,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DailyHealthPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    valueText: String,
+    unitText: String,
+    targetText: String,
+    progress: Float,
+    accentColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(accentColor.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    Text(
+                        text = title,
+                        style = LabelCaps.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    style = LabelCaps.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                    color = accentColor
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = valueText,
+                style = HeaderBold.copy(fontSize = 20.sp, fontWeight = FontWeight.Black),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = unitText,
+                    style = LabelCaps.copy(fontSize = 8.5.sp),
+                    color = accentColor
+                )
+                Text(
+                    text = targetText,
+                    style = LabelCaps.copy(fontSize = 8.5.sp),
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color = accentColor,
+                trackColor = accentColor.copy(alpha = 0.15f),
+                strokeCap = StrokeCap.Round
+            )
         }
     }
 }

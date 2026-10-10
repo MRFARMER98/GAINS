@@ -36,10 +36,12 @@ import com.example.gains.ui.components.GainsCard
 import com.example.gains.ui.components.LogMetricDialog
 import com.example.gains.ui.components.SetGoalDialog
 import com.example.gains.ui.components.getMetricThemeColor
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 @Composable
 fun MetricHistoryScreen(
@@ -158,13 +160,31 @@ fun MetricHistoryScreen(
                                 Column {
                                     val currentVal = metric.latestValue
                                     if (currentVal != null) {
+                                        val formattedVal = when {
+                                            metric.name.lowercase().contains("step") ->
+                                                NumberFormat.getIntegerInstance().format(currentVal.toInt())
+                                            metric.name.lowercase().contains("sleep") -> {
+                                                val totalMins = (currentVal * 60).roundToInt()
+                                                val h = totalMins / 60
+                                                val m = totalMins % 60
+                                                if (m == 0) "${h}h" else "${h}h ${m}m"
+                                            }
+                                            currentVal % 1f == 0f -> currentVal.toInt().toString()
+                                            else -> String.format(Locale.getDefault(), "%.1f", currentVal)
+                                        }
+                                        val unitSubtext = when {
+                                            metric.name.lowercase().contains("sleep") ->
+                                                "${String.format(Locale.getDefault(), "%.1f", currentVal)} HRS • LATEST VALUE"
+                                            else ->
+                                                "${metric.unit.uppercase()} • LATEST VALUE"
+                                        }
                                         Text(
-                                            text = if (currentVal % 1f == 0f) currentVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", currentVal),
+                                            text = formattedVal,
                                             style = MetricLarge.copy(fontSize = 32.sp),
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
-                                            text = "${metric.unit.uppercase()} • LATEST VALUE",
+                                            text = unitSubtext,
                                             style = LabelCaps.copy(fontSize = 9.sp),
                                             color = metricThemeColor
                                         )
@@ -377,8 +397,18 @@ fun MetricHistoryScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
+                                    val formattedListVal = when {
+                                        metric.name.lowercase().contains("step") ->
+                                            "${NumberFormat.getIntegerInstance().format(entry.value.toInt())} ${metric.unit}"
+                                        metric.name.lowercase().contains("sleep") -> {
+                                            val totalMins = (entry.value * 60).roundToInt()
+                                            "${totalMins / 60}h ${totalMins % 60}m (${String.format(Locale.getDefault(), "%.1f", entry.value)} hrs)"
+                                        }
+                                        entry.value % 1f == 0f -> "${entry.value.toInt()} ${metric.unit}"
+                                        else -> "${String.format(Locale.getDefault(), "%.1f", entry.value)} ${metric.unit}"
+                                    }
                                     Text(
-                                        text = "${if (entry.value % 1f == 0f) entry.value.toInt().toString() else String.format(Locale.getDefault(), "%.1f", entry.value)} ${metric.unit}",
+                                        text = formattedListVal,
                                         style = BodySemiBold.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
                                         color = metricThemeColor
                                     )

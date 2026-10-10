@@ -300,6 +300,12 @@ interface GainsDao {
     @Query("SELECT externalId FROM metric_entries WHERE externalId IS NOT NULL")
     suspend fun getAllMetricEntryExternalIds(): List<String>
 
+    @Query("SELECT * FROM metric_entries WHERE externalId = :extId LIMIT 1")
+    suspend fun getMetricEntryByExternalId(extId: String): MetricEntry?
+
+    @Query("DELETE FROM metric_entries WHERE metricId = :metricId AND externalId IS NOT NULL AND externalId NOT LIKE :prefix")
+    suspend fun deleteMetricEntriesNotMatchingPrefix(metricId: Long, prefix: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMetricEntry(entry: MetricEntry): Long
 

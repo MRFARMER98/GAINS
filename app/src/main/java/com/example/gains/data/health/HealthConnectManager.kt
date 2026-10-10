@@ -186,7 +186,7 @@ object HealthConnectManager {
                 }
             }
 
-            // 3. Sync Steps (Prioritizing Samsung Health)
+            // 3. Sync Steps (Aggregated per day, prioritizing Samsung Health)
             val stepsResponse = try {
                 client.readRecords(
                     ReadRecordsRequest(
@@ -200,38 +200,63 @@ object HealthConnectManager {
                 var stepsMetric = dao.getMetricDefinitionByName("Daily Steps")
                 if (stepsMetric == null) {
                     val id = dao.insertMetricDefinition(
-                        MetricDefinition(name = "Daily Steps", unit = "steps", isSystem = true, displayOrder = 3, source = "HEALTH_CONNECT")
+                        MetricDefinition(name = "Daily Steps", unit = "steps", isSystem = true, displayOrder = 3, targetValue = 10000f, source = "HEALTH_CONNECT")
                     )
                     stepsMetric = dao.getMetricDefinitionById(id)
                 }
 
                 if (stepsMetric != null) {
-                    val existingExternalIds = dao.getAllMetricEntryExternalIds().toSet()
-                    
-                    // Filter records: Prefer Samsung Health records if present!
+                    // Filter records: Prefer Samsung Health records if present; otherwise pick app package with highest step volume
                     val samsungSteps = stepsResponse.records.filter { isSamsungHealth(it.metadata.dataOrigin.packageName) }
-                    val targetStepRecords = if (samsungSteps.isNotEmpty()) samsungSteps else stepsResponse.records
-
-                    val newEntries = targetStepRecords.mapNotNull { record ->
-                        val extId = record.metadata.id
-                        if (existingExternalIds.contains(extId)) null
-                        else {
-                            MetricEntry(
-                                metricId = stepsMetric.id,
-                                timestamp = record.startTime.toEpochMilli(),
-                                value = record.count.toFloat(),
-                                externalId = extId
-                            )
-                        }
+                    val targetStepRecords = if (samsungSteps.isNotEmpty()) {
+                        samsungSteps
+                    } else {
+                        val byPkg = stepsResponse.records.groupBy { it.metadata.dataOrigin.packageName }
+                        byPkg.maxByOrNull { it.value.sumOf { r -> r.count } }?.value ?: stepsResponse.records
                     }
-                    if (newEntries.isNotEmpty()) {
-                        dao.insertMetricEntries(newEntries)
-                        totalSyncedCount += newEntries.size
+
+                    // Clean up any legacy non-aggregated interval entries
+                    try {
+                        dao.deleteMetricEntriesNotMatchingPrefix(stepsMetric.id, "daily_steps_%")
+                    } catch (e: Exception) { /* ignore */ }
+
+                    val zoneId = java.time.ZoneId.systemDefault()
+                    val today = java.time.LocalDate.now()
+                    val stepsByDate = targetStepRecords.groupBy { record ->
+                        record.startTime.atZone(zoneId).toLocalDate()
+                    }
+
+                    for ((date, dayRecords) in stepsByDate) {
+                        val totalSteps = dayRecords.sumOf { it.count }
+                        val extId = "daily_steps_$date"
+                        val dayTimestamp = if (date == today) {
+                            System.currentTimeMillis()
+                        } else {
+                            date.atTime(23, 59, 59).atZone(zoneId).toInstant().toEpochMilli()
+                        }
+
+                        val existing = dao.getMetricEntryByExternalId(extId)
+                        if (existing != null) {
+                            if (existing.value != totalSteps.toFloat() || (date == today && existing.timestamp != dayTimestamp)) {
+                                dao.updateMetricEntry(existing.copy(value = totalSteps.toFloat(), timestamp = dayTimestamp))
+                                totalSyncedCount++
+                            }
+                        } else {
+                            dao.insertMetricEntry(
+                                MetricEntry(
+                                    metricId = stepsMetric.id,
+                                    timestamp = dayTimestamp,
+                                    value = totalSteps.toFloat(),
+                                    externalId = extId
+                                )
+                            )
+                            totalSyncedCount++
+                        }
                     }
                 }
             }
 
-            // 4. Sync Sleep Sessions (Prioritizing Samsung Health)
+            // 4. Sync Sleep Sessions (Aggregated per wake-up day, prioritizing Samsung Health)
             val sleepResponse = try {
                 client.readRecords(
                     ReadRecordsRequest(
@@ -245,35 +270,53 @@ object HealthConnectManager {
                 var sleepMetric = dao.getMetricDefinitionByName("Sleep")
                 if (sleepMetric == null) {
                     val id = dao.insertMetricDefinition(
-                        MetricDefinition(name = "Sleep", unit = "hrs", isSystem = true, displayOrder = 4, source = "HEALTH_CONNECT")
+                        MetricDefinition(name = "Sleep", unit = "hrs", isSystem = true, displayOrder = 4, targetValue = 8.0f, source = "HEALTH_CONNECT")
                     )
                     sleepMetric = dao.getMetricDefinitionById(id)
                 }
 
                 if (sleepMetric != null) {
-                    val existingExternalIds = dao.getAllMetricEntryExternalIds().toSet()
-
-                    // Filter records: Prefer Samsung Health records if present!
                     val samsungSleep = sleepResponse.records.filter { isSamsungHealth(it.metadata.dataOrigin.packageName) }
-                    val targetSleepRecords = if (samsungSleep.isNotEmpty()) samsungSleep else sleepResponse.records
-
-                    val newEntries = targetSleepRecords.mapNotNull { record ->
-                        val extId = record.metadata.id
-                        if (existingExternalIds.contains(extId)) null
-                        else {
-                            val durationMinutes = ChronoUnit.MINUTES.between(record.startTime, record.endTime)
-                            val hours = durationMinutes / 60.0f
-                            MetricEntry(
-                                metricId = sleepMetric.id,
-                                timestamp = record.endTime.toEpochMilli(),
-                                value = hours,
-                                externalId = extId
-                            )
-                        }
+                    val targetSleepRecords = if (samsungSleep.isNotEmpty()) {
+                        samsungSleep
+                    } else {
+                        val byPkg = sleepResponse.records.groupBy { it.metadata.dataOrigin.packageName }
+                        byPkg.maxByOrNull { it.value.sumOf { r -> ChronoUnit.MINUTES.between(r.startTime, r.endTime) } }?.value ?: sleepResponse.records
                     }
-                    if (newEntries.isNotEmpty()) {
-                        dao.insertMetricEntries(newEntries)
-                        totalSyncedCount += newEntries.size
+
+                    // Clean up legacy non-daily sleep entries
+                    try {
+                        dao.deleteMetricEntriesNotMatchingPrefix(sleepMetric.id, "daily_sleep_%")
+                    } catch (e: Exception) { /* ignore */ }
+
+                    val zoneId = java.time.ZoneId.systemDefault()
+                    val sleepByWakeDate = targetSleepRecords.groupBy { record ->
+                        record.endTime.atZone(zoneId).toLocalDate()
+                    }
+
+                    for ((date, dayRecords) in sleepByWakeDate) {
+                        val totalMinutes = dayRecords.sumOf { ChronoUnit.MINUTES.between(it.startTime, it.endTime) }
+                        val hours = totalMinutes / 60.0f
+                        val extId = "daily_sleep_$date"
+                        val timestamp = dayRecords.maxOf { it.endTime }.toEpochMilli()
+
+                        val existing = dao.getMetricEntryByExternalId(extId)
+                        if (existing != null) {
+                            if (Math.abs(existing.value - hours) > 0.01f || existing.timestamp != timestamp) {
+                                dao.updateMetricEntry(existing.copy(value = hours, timestamp = timestamp))
+                                totalSyncedCount++
+                            }
+                        } else {
+                            dao.insertMetricEntry(
+                                MetricEntry(
+                                    metricId = sleepMetric.id,
+                                    timestamp = timestamp,
+                                    value = hours,
+                                    externalId = extId
+                                )
+                            )
+                            totalSyncedCount++
+                        }
                     }
                 }
             }

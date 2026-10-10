@@ -304,11 +304,28 @@ class DefaultDataRepository(private val gainsDao: GainsDao) : DataRepository {
 
     override suspend fun ensureDefaultMetricsSeeded() {
         val all = gainsDao.getAllMetricDefinitions().firstOrNull() ?: emptyList()
-        if (all.isEmpty()) {
-            val country = java.util.Locale.getDefault().country
-            val unit = if (country == "US" || country == "LR" || country == "MM") "lbs" else "kg"
+        val existingNames = all.map { it.name.lowercase() }.toSet()
+        val country = java.util.Locale.getDefault().country
+        val weightUnit = if (country == "US" || country == "LR" || country == "MM") "lbs" else "kg"
+
+        if (!existingNames.contains("body weight")) {
             gainsDao.insertMetricDefinition(
-                MetricDefinition(name = "Body Weight", unit = unit, isSystem = true, displayOrder = 1)
+                MetricDefinition(name = "Body Weight", unit = weightUnit, isSystem = true, displayOrder = 1)
+            )
+        }
+        if (!existingNames.contains("body fat (%)")) {
+            gainsDao.insertMetricDefinition(
+                MetricDefinition(name = "Body Fat (%)", unit = "%", isSystem = false, displayOrder = 2, source = "HEALTH_CONNECT")
+            )
+        }
+        if (!existingNames.contains("daily steps")) {
+            gainsDao.insertMetricDefinition(
+                MetricDefinition(name = "Daily Steps", unit = "steps", isSystem = true, displayOrder = 3, targetValue = 10000f, source = "HEALTH_CONNECT")
+            )
+        }
+        if (!existingNames.contains("sleep")) {
+            gainsDao.insertMetricDefinition(
+                MetricDefinition(name = "Sleep", unit = "hrs", isSystem = true, displayOrder = 4, targetValue = 8.0f, source = "HEALTH_CONNECT")
             )
         }
     }
