@@ -459,6 +459,7 @@ abstract class GainsDatabase : RoomDatabase() {
                             allergensText = (SELECT a.allergensText FROM asset_db.food_items a WHERE a.id = food_items.id),
                             isVegetarian = (SELECT a.isVegetarian FROM asset_db.food_items a WHERE a.id = food_items.id),
                             isVegan = (SELECT a.isVegan FROM asset_db.food_items a WHERE a.id = food_items.id),
+                            isVerified = (SELECT a.isVerified FROM asset_db.food_items a WHERE a.id = food_items.id),
                             packageWeightGrams = (SELECT a.packageWeightGrams FROM asset_db.food_items a WHERE a.id = food_items.id),
                             updatedAt = (SELECT a.updatedAt FROM asset_db.food_items a WHERE a.id = food_items.id)
                         WHERE EXISTS (SELECT 1 FROM asset_db.food_items a WHERE a.id = food_items.id)

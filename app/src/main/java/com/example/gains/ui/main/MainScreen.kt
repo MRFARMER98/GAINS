@@ -64,7 +64,7 @@ fun MainScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            // Sleek Custom Navigation Bar with 48dp Touch Bounds and Semantics
+            // Sleek Custom Navigation Bar with 48dp Touch Bounds and Semantics (4 Hub Tabs)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -86,32 +86,20 @@ fun MainScreen(
                     CustomTabItem(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        icon = Icons.Default.Restaurant,
-                        label = "FOOD"
+                        icon = Icons.Default.FitnessCenter,
+                        label = "TRAIN"
                     )
                     CustomTabItem(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        icon = Icons.Default.FitnessCenter,
-                        label = "EXERCISES"
+                        icon = Icons.Default.Restaurant,
+                        label = "FOOD"
                     )
                     CustomTabItem(
                         selected = selectedTab == 3,
                         onClick = { selectedTab = 3 },
-                        icon = Icons.Default.CalendarMonth,
-                        label = "PLANNER"
-                    )
-                    CustomTabItem(
-                        selected = selectedTab == 4,
-                        onClick = { selectedTab = 4 },
                         icon = Icons.Default.Person,
                         label = "YOU"
-                    )
-                    CustomTabItem(
-                        selected = selectedTab == 5,
-                        onClick = { selectedTab = 5 },
-                        icon = Icons.Default.Settings,
-                        label = "SETTINGS"
                     )
                 }
             }
@@ -125,6 +113,13 @@ fun MainScreen(
         ) {
             when (selectedTab) {
                 0 -> {
+                    com.example.gains.ui.main.tabs.HomeTabContent(
+                        viewModel = viewModel,
+                        repository = app.repository,
+                        onItemClick = onItemClick
+                    )
+                }
+                1 -> {
                     WorkoutTabContent(
                         state = state,
                         viewModel = viewModel,
@@ -134,65 +129,18 @@ fun MainScreen(
                         onItemClick = onItemClick
                     )
                 }
-                1 -> {
+                2 -> {
                     com.example.gains.ui.main.tabs.FoodTabContent(
                         viewModel = viewModel,
-                        repository = app.repository
-                    )
-                }
-                2 -> {
-                    ExercisesTabContent(
-                        exercises = exercisesWithSummary,
-                        syncState = syncState,
-                        onSyncClick = { viewModel.syncDatabase() },
-                        onItemClick = onItemClick
-                    )
-                }
-                3 -> {
-                    PlannerTabContent(
-                        sessions = sessions,
-                        plannedSessions = allPlannedSessions,
-                        labels = allLabels,
-                        templates = allTemplates,
-                        onSchedulePlan = { date, name, type, labelId, templateId ->
-                            viewModel.schedulePlannedSession(date, name, type, labelId, templateId)
-                        },
-                        onDeletePlan = { id -> viewModel.deletePlannedSession(id) },
-                        onStartPlan = { planned ->
-                            viewModel.startPlannedSession(planned) { sessionId ->
-                                onItemClick(WorkoutLogger(sessionId))
-                            }
-                        },
-                        onCreateTemplate = { name ->
-                            viewModel.createNewTemplate(name) { id ->
-                                onItemClick(WorkoutLogger(templateId = id, isTemplateMode = true))
-                            }
-                        },
-                        onEditTemplate = { id ->
-                            onItemClick(WorkoutLogger(templateId = id, isTemplateMode = true))
-                        },
-                        onDeleteTemplate = { id ->
-                            viewModel.deleteTemplate(id)
-                        },
-                        onStartTemplate = { id ->
-                            viewModel.createSessionFromTemplate(id) { sessionId ->
-                                onItemClick(WorkoutLogger(sessionId))
-                            }
-                        },
-                        onItemClick = onItemClick
-                    )
-                }
-                4 -> {
-                    YouTabContent(
-                        viewModel = viewModel,
-                        settingsManager = app.settingsManager,
+                        repository = app.repository,
                         onItemClick = onItemClick
                     )
                 }
                 else -> {
-                    SettingsTabContent(
+                    YouTabContent(
                         viewModel = viewModel,
-                        settingsManager = app.settingsManager
+                        settingsManager = app.settingsManager,
+                        onItemClick = onItemClick
                     )
                 }
             }

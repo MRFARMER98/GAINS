@@ -30,6 +30,7 @@ import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.navigation3.runtime.NavKey
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -73,10 +74,9 @@ import java.util.Locale
 fun FoodTabContent(
     viewModel: MainScreenViewModel,
     repository: com.example.gains.data.DataRepository,
+    onItemClick: (NavKey) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var selectedSubTab by remember { mutableStateOf(0) } // 0 = DIARY, 1 = RECIPES & MEALS
-
     val selectedDateTimestamp by viewModel.selectedFoodDateTimestamp.collectAsState()
     val loggedEntries by viewModel.loggedFoodEntries.collectAsState()
     val summary by viewModel.dailyNutrientSummary.collectAsState()
@@ -89,15 +89,10 @@ fun FoodTabContent(
     val searchResults by viewModel.foodSearchResults.collectAsState()
 
     val filteredRecipes by viewModel.filteredRecipes.collectAsState()
-    val selectedIngredientFilters by viewModel.selectedIngredientFilters.collectAsState()
 
     var showAddFoodDialog by remember { mutableStateOf(false) }
     var dialogMealType by remember { mutableStateOf("BREAKFAST") }
     var isMicronutrientsExpanded by remember { mutableStateOf(false) }
-
-    var showCreateRecipeDialog by remember { mutableStateOf(false) }
-    var selectedRecipeForView by remember { mutableStateOf<FoodRecipeWithDetails?>(null) }
-    var ingredientFilterInput by remember { mutableStateOf("") }
 
     val dateFormatter = remember { SimpleDateFormat("EEEE, d MMM", Locale.ENGLISH) }
     val isToday = remember(selectedDateTimestamp) {
@@ -108,58 +103,14 @@ fun FoodTabContent(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Sub-Navigation Tab Bar
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                TabRow(
-                    selectedTabIndex = selectedSubTab,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = InfraredAccent,
-                    indicator = { tabPositions ->
-                        TabRowDefaults.SecondaryIndicator(
-                            Modifier.tabIndicatorOffset(tabPositions[selectedSubTab]),
-                            color = InfraredAccent
-                        )
-                    }
-                ) {
-                    Tab(
-                        selected = selectedSubTab == 0,
-                        onClick = { selectedSubTab = 0 },
-                        text = {
-                            Text(
-                                "FOOD DIARY",
-                                style = LabelCaps.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
-                                color = if (selectedSubTab == 0) InfraredAccent else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    )
-                    Tab(
-                        selected = selectedSubTab == 1,
-                        onClick = { selectedSubTab = 1 },
-                        text = {
-                            Text(
-                                "RECIPES & MEALS",
-                                style = LabelCaps.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
-                                color = if (selectedSubTab == 1) InfraredAccent else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    )
-                }
-            }
-
-            if (selectedSubTab == 0) {
-                // ==================== FOOD DIARY VIEW ====================
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 88.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
+        // ==================== FOOD DIARY VIEW ====================
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 88.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
                     // Top Date Navigation Bar
                     item {
                         Row(
@@ -192,6 +143,59 @@ fun FoodTabContent(
                                 modifier = Modifier.minimumInteractiveComponentSize()
                             ) {
                                 Icon(Icons.Default.ChevronRight, contentDescription = "Next Day", tint = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+
+                    // Recipes Studio Hub Bento Card
+                    item {
+                        GainsCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onItemClick(com.example.gains.RecipesHub) }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = InfraredAccent.copy(alpha = 0.15f),
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.RestaurantMenu,
+                                                contentDescription = null,
+                                                tint = InfraredAccent,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            "RECIPES & MEALS STUDIO",
+                                            style = LabelCaps.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            "${filteredRecipes.size} Saved • 'What's in your kitchen' Search",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = "Open Recipes",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                     }
@@ -429,168 +433,26 @@ fun FoodTabContent(
                         }
                     }
                 }
-            } else {
-                // ==================== RECIPES & MEALS VIEW ====================
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 88.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Multi-Ingredient Search & Filter Header Card
-                    item {
-                        GainsCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Button(
-                                        onClick = { showCreateRecipeDialog = true },
-                                        colors = ButtonDefaults.buttonColors(containerColor = InfraredAccent),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("CREATE RECIPE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // Ingredient Filter Input Box
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedTextField(
-                                        value = ingredientFilterInput,
-                                        onValueChange = { ingredientFilterInput = it },
-                                        label = { Text("Add ingredient filter (e.g. Chicken, Eggs)") },
-                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                        trailingIcon = {
-                                            if (ingredientFilterInput.isNotBlank()) {
-                                                IconButton(
-                                                    onClick = {
-                                                        viewModel.toggleIngredientFilter(ingredientFilterInput)
-                                                        ingredientFilterInput = ""
-                                                    }
-                                                ) {
-                                                    Icon(Icons.Default.Add, contentDescription = "Add Filter", tint = InfraredAccent)
-                                                }
-                                            }
-                                        },
-                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                        keyboardActions = KeyboardActions(
-                                            onDone = {
-                                                if (ingredientFilterInput.isNotBlank()) {
-                                                    viewModel.toggleIngredientFilter(ingredientFilterInput)
-                                                    ingredientFilterInput = ""
-                                                }
-                                            }
-                                        ),
-                                        modifier = Modifier.weight(1f),
-                                        singleLine = true
-                                    )
-                                }
-
-                                // Active Ingredient Chips Row
-                                if (selectedIngredientFilters.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        selectedIngredientFilters.forEach { filter ->
-                                            InputChip(
-                                                selected = true,
-                                                onClick = { viewModel.toggleIngredientFilter(filter) },
-                                                label = { Text(filter, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                                                trailingIcon = {
-                                                    Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(14.dp))
-                                                },
-                                                colors = InputChipDefaults.inputChipColors(
-                                                    selectedContainerColor = InfraredAccent.copy(alpha = 0.2f),
-                                                    selectedLabelColor = InfraredAccent
-                                                )
-                                            )
-                                        }
-                                        TextButton(onClick = { viewModel.clearIngredientFilters() }) {
-                                            Text("Clear all", fontSize = 11.sp, color = SystemRed)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Recipe List Cards
-                    if (filteredRecipes.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Default.RestaurantMenu,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(48.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = if (selectedIngredientFilters.isNotEmpty()) "No recipes match all selected ingredients." else "No saved recipes yet.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    TextButton(onClick = { showCreateRecipeDialog = true }) {
-                                        Text("+ Create your first recipe or meal", color = InfraredAccent, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        items(filteredRecipes) { recipeWithDetails ->
-                            RecipeCardItem(
-                                recipeWithDetails = recipeWithDetails,
-                                onViewDetails = {
-                                    selectedRecipeForView = recipeWithDetails
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
 
         // Floating Action Button for Food Diary
-        if (selectedSubTab == 0) {
-            FloatingActionButton(
-                onClick = {
-                    dialogMealType = "BREAKFAST"
-                    showAddFoodDialog = true
-                },
-                containerColor = InfraredAccent,
-                contentColor = Color.White,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
+        FloatingActionButton(
+            onClick = {
+                dialogMealType = "BREAKFAST"
+                showAddFoodDialog = true
+            },
+            containerColor = InfraredAccent,
+            contentColor = Color.White,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Food")
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("LOG FOOD", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
+                Icon(Icons.Default.Add, contentDescription = "Add Food")
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("LOG FOOD", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
     }
@@ -608,30 +470,6 @@ fun FoodTabContent(
             onDismiss = { showAddFoodDialog = false },
             getNutrientForFoodSync = { id -> repository.getNutrientForFoodSync(id) },
             getServingsForFoodSync = { id -> repository.getServingsForFoodSync(id) }
-        )
-    }
-
-
-
-    if (showCreateRecipeDialog) {
-        CreateRecipeDialog(
-            onDismiss = { showCreateRecipeDialog = false },
-            onSaveRecipe = { recipe, ingredients ->
-                viewModel.saveRecipe(recipe, ingredients)
-            },
-            searchFoodItemsSync = { query ->
-                repository.searchFoodItems(query).firstOrNull() ?: emptyList()
-            }
-        )
-    }
-
-    selectedRecipeForView?.let { recipeDetails ->
-        RecipeDetailViewDialog(
-            recipeWithDetails = recipeDetails,
-            onDismiss = { selectedRecipeForView = null },
-            onLogAsMeal = { mealType, qty ->
-                viewModel.logRecipeAsMeal(recipeDetails.recipe.id, qty, mealType)
-            }
         )
     }
 
@@ -804,16 +642,29 @@ fun CleanLoggedFoodRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = "${entry.caloriesKcal.toInt()} kcal",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                        color = InfraredAccent
-                    )
-                    Text(
-                        text = "•",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (entry.caloriesKcal > 0 || entry.proteinG > 0 || entry.carbsG > 0 || entry.fatG > 0) {
+                        Text(
+                            text = "${entry.caloriesKcal.toInt()} kcal",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                            color = InfraredAccent
+                        )
+                        Text(
+                            text = "•",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            text = "Geen voedingswaarden",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                        Text(
+                            text = "•",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Text(
                         text = portionStr,
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),

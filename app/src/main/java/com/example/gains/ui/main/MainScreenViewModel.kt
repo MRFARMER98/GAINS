@@ -82,6 +82,118 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
     val allExternalActivities: StateFlow<List<com.example.gains.data.ExternalActivity>> = repository.allExternalActivities
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val weeklyDashboardSummary: StateFlow<WeeklyDashboardSummary> = combine(
+        uiState,
+        allPlannedSessions
+    ) { state, planned ->
+        val sessions = (state as? MainScreenUiState.Success)?.sessions ?: emptyList()
+        val now = System.currentTimeMillis()
+        val cal = java.util.Calendar.getInstance().apply {
+            val dayOfWeek = get(java.util.Calendar.DAY_OF_WEEK)
+            val daysFromMonday = if (dayOfWeek == java.util.Calendar.SUNDAY) 6 else dayOfWeek - java.util.Calendar.MONDAY
+            add(java.util.Calendar.DAY_OF_YEAR, -daysFromMonday)
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val mondayStart = cal.timeInMillis
+
+        val sdfMonth = SimpleDateFormat("MMM d", Locale.ENGLISH)
+        val startLabel = sdfMonth.format(Date(mondayStart)).uppercase()
+        val sundayEndCal = java.util.Calendar.getInstance().apply {
+            timeInMillis = mondayStart
+            add(java.util.Calendar.DAY_OF_YEAR, 6)
+            set(java.util.Calendar.HOUR_OF_DAY, 23)
+            set(java.util.Calendar.MINUTE, 59)
+            set(java.util.Calendar.SECOND, 59)
+            set(java.util.Calendar.MILLISECOND, 999)
+        }
+        val endLabel = sdfMonth.format(Date(sundayEndCal.timeInMillis)).uppercase()
+        val weekRangeLabel = "$startLabel – $endLabel"
+        val sundayEnd = sundayEndCal.timeInMillis
+
+        val dayLetters = listOf("M", "T", "W", "T", "F", "S", "S")
+        val dayShorts = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+        val todayCal = java.util.Calendar.getInstance()
+        val todayYear = todayCal.get(java.util.Calendar.YEAR)
+        val todayDayOfYear = todayCal.get(java.util.Calendar.DAY_OF_YEAR)
+
+        var completedThisWeek = 0
+        var totalActiveMinutes = 0L
+
+        val daysList = (0..6).map { dayIndex ->
+            val dayCal = java.util.Calendar.getInstance().apply {
+                timeInMillis = mondayStart
+                add(java.util.Calendar.DAY_OF_YEAR, dayIndex)
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+            val dayStart = dayCal.timeInMillis
+            val dayEndCal = java.util.Calendar.getInstance().apply {
+                timeInMillis = dayStart
+                set(java.util.Calendar.HOUR_OF_DAY, 23)
+                set(java.util.Calendar.MINUTE, 59)
+                set(java.util.Calendar.SECOND, 59)
+                set(java.util.Calendar.MILLISECOND, 999)
+            }
+            val dayEnd = dayEndCal.timeInMillis
+            val isToday = dayCal.get(java.util.Calendar.YEAR) == todayYear && dayCal.get(java.util.Calendar.DAY_OF_YEAR) == todayDayOfYear
+            val isFuture = dayStart > now && !isToday
+
+            val completedSession = sessions.find { it.timestamp in dayStart..dayEnd }
+            val plannedSession = planned.find { 
+                val pCal = java.util.Calendar.getInstance().apply { timeInMillis = it.dateTimestamp }
+                pCal.get(java.util.Calendar.YEAR) == dayCal.get(java.util.Calendar.YEAR) && pCal.get(java.util.Calendar.DAY_OF_YEAR) == dayCal.get(java.util.Calendar.DAY_OF_YEAR)
+            }
+
+            if (completedSession != null) {
+                completedThisWeek++
+                if (completedSession.endTime > completedSession.timestamp) {
+                    totalActiveMinutes += (completedSession.endTime - completedSession.timestamp) / (1000 * 60)
+                } else {
+                    totalActiveMinutes += 45
+                }
+            }
+
+            WeekDayStatus(
+                dayOfWeekLetter = dayLetters[dayIndex],
+                dayOfWeekShort = dayShorts[dayIndex],
+                dayOfMonth = dayCal.get(java.util.Calendar.DAY_OF_MONTH),
+                dateTimestamp = dayStart,
+                isToday = isToday,
+                isFuture = isFuture,
+                hasCompletedWorkout = completedSession != null,
+                hasPlannedWorkout = plannedSession != null && completedSession == null,
+                sessionName = completedSession?.name ?: plannedSession?.name
+            )
+        }
+
+        val plannedCount = planned.count { it.dateTimestamp in mondayStart..sundayEnd }
+        val targetCount = maxOf(4, completedThisWeek + plannedCount)
+
+        WeeklyDashboardSummary(
+            weekRangeLabel = weekRangeLabel,
+            completedWorkoutsCount = completedThisWeek,
+            targetWorkoutsCount = targetCount,
+            days = daysList,
+            totalActiveMinutes = totalActiveMinutes
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        WeeklyDashboardSummary(
+            weekRangeLabel = "",
+            completedWorkoutsCount = 0,
+            targetWorkoutsCount = 4,
+            days = emptyList(),
+            totalActiveMinutes = 0L
+        )
+    )
+
     private val _hcSyncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val hcSyncState: StateFlow<SyncState> = _hcSyncState.asStateFlow()
 
@@ -520,14 +632,14 @@ class MainScreenViewModel(private val repository: DataRepository) : ViewModel() 
                 servingDescription = serving?.description ?: "${totalGrams.toInt()}$unit",
                 servingQuantity = 1.0f,
                 gramWeightTotal = totalGrams,
-                caloriesKcal = (nutrient?.caloriesKcal ?: 0f) * multiplier,
-                proteinG = (nutrient?.proteinG ?: 0f) * multiplier,
-                carbsG = (nutrient?.carbsG ?: 0f) * multiplier,
-                fatG = (nutrient?.fatG ?: 0f) * multiplier,
-                fiberG = (nutrient?.fiberG ?: 0f) * multiplier,
-                saltG = (nutrient?.saltG ?: 0f) * multiplier,
-                saturatedFatG = (nutrient?.saturatedFatG ?: 0f) * multiplier,
-                sugarsG = (nutrient?.sugarsG ?: 0f) * multiplier,
+                caloriesKcal = if (food.isVerified) (nutrient?.caloriesKcal ?: 0f) * multiplier else 0f,
+                proteinG = if (food.isVerified) (nutrient?.proteinG ?: 0f) * multiplier else 0f,
+                carbsG = if (food.isVerified) (nutrient?.carbsG ?: 0f) * multiplier else 0f,
+                fatG = if (food.isVerified) (nutrient?.fatG ?: 0f) * multiplier else 0f,
+                fiberG = if (food.isVerified) (nutrient?.fiberG ?: 0f) * multiplier else 0f,
+                saltG = if (food.isVerified) (nutrient?.saltG ?: 0f) * multiplier else 0f,
+                saturatedFatG = if (food.isVerified) (nutrient?.saturatedFatG ?: 0f) * multiplier else 0f,
+                sugarsG = if (food.isVerified) (nutrient?.sugarsG ?: 0f) * multiplier else 0f,
                 imageUrl = food.imageUrl
             )
             repository.insertLoggedFoodEntry(entry)
@@ -634,3 +746,23 @@ sealed interface MainScreenUiState {
         val userProfile: UserProfile?
     ) : MainScreenUiState
 }
+
+data class WeekDayStatus(
+    val dayOfWeekLetter: String,
+    val dayOfWeekShort: String,
+    val dayOfMonth: Int,
+    val dateTimestamp: Long,
+    val isToday: Boolean,
+    val isFuture: Boolean,
+    val hasCompletedWorkout: Boolean,
+    val hasPlannedWorkout: Boolean,
+    val sessionName: String? = null
+)
+
+data class WeeklyDashboardSummary(
+    val weekRangeLabel: String,
+    val completedWorkoutsCount: Int,
+    val targetWorkoutsCount: Int,
+    val days: List<WeekDayStatus>,
+    val totalActiveMinutes: Long
+)

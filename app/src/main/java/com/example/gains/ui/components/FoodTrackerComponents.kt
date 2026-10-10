@@ -258,9 +258,10 @@ fun AddFoodDialog(
                                                 ) {
                                                     SourceLogoBadge(source = food.source)
                                                     Text(
-                                                        text = "• per ${food.perUnit}",
+                                                        text = if (food.isVerified) "• per ${food.perUnit}" else "• Geen voedingswaarden beschikbaar",
                                                         style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        color = if (food.isVerified) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                                        fontStyle = if (food.isVerified) androidx.compose.ui.text.font.FontStyle.Normal else androidx.compose.ui.text.font.FontStyle.Italic
                                                     )
                                                 }
                                             }
@@ -294,13 +295,19 @@ fun AddFoodDialog(
                                     if (food.brand != null) {
                                         Text(food.brand, style = MaterialTheme.typography.bodyMedium, color = InfraredAccent)
                                     }
-                                    if (selectedNutrient != null) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    if (food.isVerified && selectedNutrient != null) {
                                         val n = selectedNutrient!!
-                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             "Per 100$unitLabel: ${n.caloriesKcal.toInt()} kcal | P: ${n.proteinG}g | C: ${n.carbsG}g | F: ${n.fatG}g | Fiber: ${n.fiberG}g | Salt: ${n.saltG}g",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    } else {
+                                        Text(
+                                            "Geen voedingswaarden beschikbaar voor dit product",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                                         )
                                     }
                                 }
@@ -398,15 +405,30 @@ fun AddFoodDialog(
                                         }
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("CALORIES", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Text("${((nut?.caloriesKcal ?: 0f) * mult).toInt()} kcal", fontWeight = FontWeight.Bold, color = InfraredAccent, fontSize = 15.sp)
+                                            Text(
+                                                if (food.isVerified) "${((nut?.caloriesKcal ?: 0f) * mult).toInt()} kcal" else "-- kcal",
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (food.isVerified) InfraredAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 15.sp
+                                            )
                                         }
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("PROTEIN", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Text("${String.format("%.1f", (nut?.proteinG ?: 0f) * mult)}g", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+                                            Text(
+                                                if (food.isVerified) "${String.format("%.1f", (nut?.proteinG ?: 0f) * mult)}g" else "--g",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
                                         }
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("CARBS", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Text("${String.format("%.1f", (nut?.carbsG ?: 0f) * mult)}g", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+                                            Text(
+                                                if (food.isVerified) "${String.format("%.1f", (nut?.carbsG ?: 0f) * mult)}g" else "--g",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
                                         }
                                     }
                                 }

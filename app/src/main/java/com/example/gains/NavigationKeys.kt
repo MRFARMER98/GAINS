@@ -18,3 +18,11 @@ import kotlinx.serialization.Serializable
 @Serializable data class MetricHistory(val metricId: Long) : NavKey
 
 @Serializable data class ExternalRunDetail(val activityId: Long) : NavKey
+
+@Serializable data object RoutinesPlanner : NavKey
+
+@Serializable data object ExerciseLibrary : NavKey
+
+@Serializable data object RecipesHub : NavKey
+
+@Serializable data object AppSettings : NavKey

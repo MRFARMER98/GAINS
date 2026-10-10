@@ -1,5 +1,6 @@
 package com.example.gains.ui.main.tabs
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,6 +33,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
 import com.example.gains.WorkoutLogger
+import com.example.gains.RoutinesPlanner
+import com.example.gains.ExerciseLibrary
+import androidx.compose.material.icons.filled.CalendarMonth
 import com.example.gains.data.ExternalActivity
 import com.example.gains.data.PlannedSession
 import com.example.gains.data.SettingsManager
@@ -124,7 +128,8 @@ fun WorkoutTabContent(
     plannedSessions: List<PlannedSession> = emptyList(),
     labels: List<WorkoutLabel> = emptyList(),
     settingsManager: SettingsManager? = null,
-    onItemClick: (NavKey) -> Unit
+    onItemClick: (NavKey) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var showWorkoutTypeDialog by remember { mutableStateOf(false) }
     var selectedActivityForDetail by remember { mutableStateOf<ExternalActivity?>(null) }
@@ -142,269 +147,329 @@ fun WorkoutTabContent(
     val disabledSourceApps by (settingsManager?.disabledSourceApps?.collectAsStateWithLifecycle(initialValue = emptySet())
         ?: remember { mutableStateOf(emptySet()) })
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        val workoutsCount = when (state) {
-            is MainScreenUiState.Success -> state.sessions.size
-            else -> 0
-        }
-        val streak = when (state) {
-            is MainScreenUiState.Success -> calculateStreak(state.sessions)
-            else -> "0 Days"
-        }
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+        ) {
+            val workoutsCount = when (state) {
+                is MainScreenUiState.Success -> state.sessions.size
+                else -> 0
+            }
+            val streak = when (state) {
+                is MainScreenUiState.Success -> calculateStreak(state.sessions)
+                else -> "0 Days"
+            }
 
-        val profile = (state as? MainScreenUiState.Success)?.userProfile
-        val userName = profile?.name ?: "Wouter"
-        val photoUri = profile?.photoUri
+            val profile = (state as? MainScreenUiState.Success)?.userProfile
+            val userName = profile?.name ?: "Wouter"
+            val photoUri = profile?.photoUri
 
-        // Top Header Card
-        DashboardHeaderCard(
-            greeting = getGreeting(),
-            userName = userName,
-            motivationQuote = "Let's fuck shit up today",
-            photoUri = photoUri,
-            workoutsCount = workoutsCount,
-            streak = streak,
-            modifier = Modifier.padding(bottom = 20.dp)
-        )
-
-        // Today's Scheduled Routine Section
-        if (todayPlannedSessions.isNotEmpty()) {
-            Text(
-                text = "TODAY'S SCHEDULED ROUTINE",
-                style = LabelCaps,
-                color = MaterialTheme.colorScheme.primary
+            // Top Header Card
+            DashboardHeaderCard(
+                greeting = getGreeting(),
+                userName = userName,
+                motivationQuote = "Let's fuck shit up today",
+                photoUri = photoUri,
+                workoutsCount = workoutsCount,
+                streak = streak,
+                modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            todayPlannedSessions.forEach { planned ->
-                val labelObj = labelsMap[planned.labelId]
-                val tagColor = try {
-                    Color(android.graphics.Color.parseColor(labelObj?.colorHex))
-                } catch (e: Exception) {
-                    InfraredAccent
-                }
-
-                val workoutTypeIcon = when (planned.workoutType) {
-                    "RUN" -> Icons.AutoMirrored.Filled.DirectionsRun
-                    "HYROX" -> Icons.Default.FlashOn
-                    else -> Icons.Default.FitnessCenter
+            // Hub Drill-Down Cards (Routines & Exercise Library)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                GainsCard(
+                    modifier = Modifier.weight(1f),
+                    onClick = { onItemClick(RoutinesPlanner) }
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CalendarMonth,
+                                contentDescription = null,
+                                tint = InfraredAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "ROUTINES",
+                                style = LabelCaps.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Templates & Schedule",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 GainsCard(
-                    onClick = {
-                        val tId = planned.templateId
-                        if (tId != null && tId > 0) {
-                            onItemClick(WorkoutLogger(templateId = tId, isTemplateMode = true, isPlannedMode = true, plannedId = planned.id))
-                        } else {
-                            viewModel.startPlannedSession(planned) { sessionId ->
-                                onItemClick(WorkoutLogger(sessionId))
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    modifier = Modifier.weight(1f),
+                    onClick = { onItemClick(ExerciseLibrary) }
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.background),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = workoutTypeIcon,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = planned.name,
-                                        style = BodySemiBold.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    if (labelObj != null) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(tagColor.copy(alpha = 0.15f))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(
-                                                text = labelObj.name.uppercase(),
-                                                style = LabelCaps.copy(fontSize = 8.sp),
-                                                color = tagColor
-                                            )
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Tap for details • Play to start",
-                                    style = LabelCaps.copy(fontSize = 9.sp),
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
-                            }
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.FitnessCenter,
+                                contentDescription = null,
+                                tint = PrimaryCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "EXERCISES",
+                                style = LabelCaps.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                         }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "100+ Exercise Library",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
-                        IconButton(
-                            onClick = {
+            // Today's Scheduled Routine Section
+            if (todayPlannedSessions.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "TODAY'S SCHEDULED ROUTINE",
+                    style = LabelCaps,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                todayPlannedSessions.forEach { planned ->
+                    val labelObj = labelsMap[planned.labelId]
+                    val tagColor = try {
+                        Color(android.graphics.Color.parseColor(labelObj?.colorHex))
+                    } catch (e: Exception) {
+                        InfraredAccent
+                    }
+
+                    val workoutTypeIcon = when (planned.workoutType) {
+                        "RUN" -> Icons.AutoMirrored.Filled.DirectionsRun
+                        "HYROX" -> Icons.Default.FlashOn
+                        else -> Icons.Default.FitnessCenter
+                    }
+
+                    GainsCard(
+                        onClick = {
+                            val tId = planned.templateId
+                            if (tId != null && tId > 0) {
+                                onItemClick(WorkoutLogger(templateId = tId, isTemplateMode = true, isPlannedMode = true, plannedId = planned.id))
+                            } else {
                                 viewModel.startPlannedSession(planned) { sessionId ->
                                     onItemClick(WorkoutLogger(sessionId))
                                 }
-                            },
-                            modifier = Modifier.size(48.dp)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Start Workout",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            TextButton(
-                onClick = { showWorkoutTypeDialog = true },
-                modifier = Modifier.align(Alignment.Start),
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "+ Start other workout",
-                    style = LabelCaps.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                )
-            }
-        } else {
-            Button(
-                onClick = { showWorkoutTypeDialog = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White
-                ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
-            ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    "START WORKOUT",
-                    style = LabelCaps,
-                    color = Color.White
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(28.dp))
-
-        // History Label
-        Text(
-            text = "WORKOUT HISTORY",
-            style = LabelCaps,
-            color = MaterialTheme.colorScheme.secondary
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        val externalActivities by viewModel.allExternalActivities.collectAsStateWithLifecycle(initialValue = emptyList())
-
-        when (state) {
-            MainScreenUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
-            }
-            is MainScreenUiState.Error -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "Error loading history: ${state.throwable.message}",
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-            is MainScreenUiState.Success -> {
-                val sessions = state.sessions
-                val timelineItems = remember(sessions, externalActivities, disabledSourceApps) {
-                    val itemsList = mutableListOf<TimelineItem>()
-                    sessions.forEach { itemsList.add(TimelineItem.GainsSession(it)) }
-                    externalActivities.forEach { act ->
-                        val appName = act.sourceApp ?: "Health Connect"
-                        if (!disabledSourceApps.contains(appName)) {
-                            itemsList.add(TimelineItem.External(act))
-                        }
-                    }
-                    itemsList.sortedByDescending { it.timestamp }
-                }
-
-                if (timelineItems.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "No workouts logged yet.\nTime to make some GAINS!",
-                            color = MaterialTheme.colorScheme.secondary,
-                            fontSize = 15.sp,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 22.sp
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(vertical = 4.dp)
-                    ) {
-                        items(timelineItems, key = { it.key }) { item ->
-                            when (item) {
-                                is TimelineItem.GainsSession -> {
-                                    HistoryCard(
-                                        session = item.session,
-                                        onClick = { onItemClick(WorkoutLogger(item.session.id)) }
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.background),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = workoutTypeIcon,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
-                                is TimelineItem.External -> {
-                                    ExternalActivityCard(
-                                        activity = item.activity,
-                                        onClick = { onItemClick(com.example.gains.ExternalRunDetail(item.activity.id)) }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = planned.name,
+                                            style = BodySemiBold.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (labelObj != null) {
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(tagColor.copy(alpha = 0.15f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = labelObj.name.uppercase(),
+                                                    style = LabelCaps.copy(fontSize = 8.sp),
+                                                    color = tagColor
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Tap for details • Play to start",
+                                        style = LabelCaps.copy(fontSize = 9.sp),
+                                        color = MaterialTheme.colorScheme.secondary
                                     )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    val tId = planned.templateId
+                                    if (tId != null && tId > 0) {
+                                        onItemClick(WorkoutLogger(templateId = tId, isTemplateMode = true, isPlannedMode = true, plannedId = planned.id))
+                                    } else {
+                                        viewModel.startPlannedSession(planned) { sessionId ->
+                                            onItemClick(WorkoutLogger(sessionId))
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Start Workout",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // History Label
+            Text(
+                text = "WORKOUT HISTORY",
+                style = LabelCaps,
+                color = MaterialTheme.colorScheme.secondary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val externalActivities by viewModel.allExternalActivities.collectAsStateWithLifecycle(initialValue = emptyList())
+
+            when (state) {
+                MainScreenUiState.Loading -> {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(bottom = 20.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                is MainScreenUiState.Error -> {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(bottom = 20.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            "Error loading history: ${state.throwable.message}",
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                is MainScreenUiState.Success -> {
+                    val sessions = state.sessions
+                    val timelineItems = remember(sessions, externalActivities, disabledSourceApps) {
+                        val itemsList = mutableListOf<TimelineItem>()
+                        sessions.forEach { itemsList.add(TimelineItem.GainsSession(it)) }
+                        externalActivities.forEach { act ->
+                            val appName = act.sourceApp ?: "Health Connect"
+                            if (!disabledSourceApps.contains(appName)) {
+                                itemsList.add(TimelineItem.External(act))
+                            }
+                        }
+                        itemsList.sortedByDescending { it.timestamp }
+                    }
+
+                    if (timelineItems.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(bottom = 20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No workouts logged yet.\nTime to make some GAINS!",
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontSize = 15.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 22.sp
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
+                        ) {
+                            items(timelineItems, key = { it.key }) { item ->
+                                when (item) {
+                                    is TimelineItem.GainsSession -> {
+                                        HistoryCard(
+                                            session = item.session,
+                                            onClick = { onItemClick(WorkoutLogger(item.session.id)) }
+                                        )
+                                    }
+                                    is TimelineItem.External -> {
+                                        ExternalActivityCard(
+                                            activity = item.activity,
+                                            onClick = { onItemClick(com.example.gains.ExternalRunDetail(item.activity.id)) }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+
+        // Floating Circular Action Button (Bottom-Center FAB)
+        FloatingActionButton(
+            onClick = { showWorkoutTypeDialog = true },
+            shape = CircleShape,
+            containerColor = InfraredAccent,
+            contentColor = Color.White,
+            elevation = FloatingActionButtonDefaults.elevation(
+                defaultElevation = 6.dp,
+                pressedElevation = 2.dp
+            ),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+                .size(56.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = "Start Workout",
+                tint = Color.White,
+                modifier = Modifier.size(28.dp)
+            )
         }
     }
 
@@ -610,7 +675,6 @@ fun ExternalActivityCard(
         }
     }
 
-    val routePoints = remember(activity.routeJson) { parseRouteJson(activity.routeJson) }
     val brandAccentColor = if (isNikeRunClub) Color(0xFFC1F807) else MaterialTheme.colorScheme.primary
 
     GainsCard(
